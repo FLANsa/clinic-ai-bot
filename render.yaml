@@ -1,0 +1,40 @@
+# Render Blueprint for Clinic AI Bot
+# https://render.com/docs/blueprint-spec
+
+services:
+  # Backend API
+  - type: web
+    name: clinic-ai-bot-backend
+    runtime: python
+    region: frankfurt
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: clinic-db
+          property: connectionString
+      - key: GROQ_API_KEY
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_BUSINESS_ACCOUNT_ID
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        value: test_token
+      - key: ADMIN_API_KEY
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: "3.11"
+
+databases:
+  - name: clinic-db
+    plan: free
+    region: frankfurt
+    databaseName: clinic_db
+    user: clinic_user
