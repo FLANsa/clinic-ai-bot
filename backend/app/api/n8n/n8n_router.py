@@ -1,19 +1,18 @@
 """
-N8N Integration Router - ربط n8n مع قاعدة البيانات
-Endpoints مخصصة لاستخدام n8n workflows
+N8N Integration Router - تكامل مع n8n
+يوفر endpoints للوصول إلى البيانات من n8n
 """
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from typing import Optional, List, Dict, Any
 from datetime import datetime, date
 from pydantic import BaseModel
-from uuid import UUID
-
 from app.db.session import get_db
+from app.middleware.auth import verify_api_key
 from app.db.models import (
-    Doctor, Service, Branch, Offer, FAQ, Appointment,
+    Appointment, Doctor, Service, Branch, Offer, FAQ, 
     Patient, Treatment, Invoice, Employee, Conversation
 )
 
@@ -22,413 +21,327 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/n8n", tags=["N8N Integration"])
 
 
-# ==================== Models ====================
-
-class DoctorResponse(BaseModel):
-    """رد بيانات الطبيب"""
-    id: str
-    name: str
-    specialty: Optional[str] = None
-    license_number: Optional[str] = None
-    phone_number: Optional[str] = None
-    email: Optional[str] = None
-    bio: Optional[str] = None
-    branch_id: Optional[str] = None
-    is_active: bool
-
-    class Config:
-        from_attributes = True
+class N8NResponse(BaseModel):
+    """رد عام من N8N"""
+    success: bool
+    data: Any
+    count: Optional[int] = None
+    message: Optional[str] = None
 
 
-class ServiceResponse(BaseModel):
-    """رد بيانات الخدمة"""
-    id: str
-    name: str
-    description: Optional[str] = None
-    base_price: Optional[float] = None
-    is_active: bool
-
-    class Config:
-        from_attributes = True
-
-
-class BranchResponse(BaseModel):
-    """رد بيانات الفرع"""
-    id: str
-    name: str
-    city: Optional[str] = None
-    address: Optional[str] = None
-    phone: Optional[str] = None
-    working_hours: Optional[Dict[str, Any]] = None
-    is_active: bool
-
-    class Config:
-        from_attributes = True
-
-
-class AppointmentResponse(BaseModel):
-    """رد بيانات الموعد"""
-    id: str
-    patient_name: Optional[str] = None
-    patient_id: Optional[str] = None
-    phone: str
-    branch_id: str
-    doctor_id: Optional[str] = None
-    service_id: str
-    datetime: datetime
-    status: str
-    channel: str
-    appointment_type: Optional[str] = None
-    notes: Optional[str] = None
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class AppointmentCreate(BaseModel):
-    """إنشاء موعد جديد"""
-    patient_name: str
-    phone: str
-    branch_id: UUID
-    doctor_id: Optional[UUID] = None
-    service_id: UUID
-    datetime: datetime
-    channel: str = "n8n"
-    status: str = "pending"
-    appointment_type: Optional[str] = None
-    notes: Optional[str] = None
-
-
-class PatientResponse(BaseModel):
-    """رد بيانات المريض"""
-    id: str
-    full_name: str
-    phone_number: str
-    email: Optional[str] = None
-    date_of_birth: Optional[date] = None
-    gender: Optional[str] = None
-    is_active: bool
-
-    class Config:
-        from_attributes = True
-
-
-class ConversationResponse(BaseModel):
-    """رد بيانات المحادثة"""
-    id: str
-    user_id: str
-    channel: str
-    user_message: str
-    bot_reply: str
-    intent: Optional[str] = None
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-# ==================== Read Endpoints ====================
-
-@router.get("/doctors", response_model=List[DoctorResponse])
-async def get_doctors(
-    active_only: bool = Query(True, description="جلب الأطباء النشطين فقط"),
-    db: Session = Depends(get_db)
+# ==================== المواعيد ====================
+@router.get("/appointments", response_model=N8NResponse)
+async def get_appointments_n8n(
+    status: Optional[str] = Query(None, description="حالة الموعد (pending, confirmed, completed, cancelled)"),
+    from_date: Optional[str] = Query(None, description="من تاريخ (YYYY-MM-DD)"),
+    to_date: Optional[str] = Query(None, description="إلى تاريخ (YYYY-MM-DD)"),
+    limit: int = Query(100, ge=1, le=1000, description="عدد النتائج"),
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
 ):
-    """جلب قائمة الأطباء"""
-    query = db.query(Doctor)
-    if active_only:
-        query = query.filter(Doctor.is_active == True)
-    
-    doctors = query.all()
-    return [
-        DoctorResponse(
-            id=str(d.id),
-            name=d.name,
-            specialty=d.specialty,
-            license_number=d.license_number,
-            phone_number=d.phone_number,
-            email=d.email,
-            bio=d.bio,
-            branch_id=str(d.branch_id) if d.branch_id else None,
-            is_active=d.is_active
-        )
-        for d in doctors
-    ]
-
-
-@router.get("/services", response_model=List[ServiceResponse])
-async def get_services(
-    active_only: bool = Query(True, description="جلب الخدمات النشطة فقط"),
-    db: Session = Depends(get_db)
-):
-    """جلب قائمة الخدمات"""
-    query = db.query(Service)
-    if active_only:
-        query = query.filter(Service.is_active == True)
-    
-    services = query.all()
-    return [
-        ServiceResponse(
-            id=str(s.id),
-            name=s.name,
-            description=s.description,
-            base_price=s.base_price,
-            is_active=s.is_active
-        )
-        for s in services
-    ]
-
-
-@router.get("/branches", response_model=List[BranchResponse])
-async def get_branches(
-    active_only: bool = Query(True, description="جلب الفروع النشطة فقط"),
-    db: Session = Depends(get_db)
-):
-    """جلب قائمة الفروع"""
-    query = db.query(Branch)
-    if active_only:
-        query = query.filter(Branch.is_active == True)
-    
-    branches = query.all()
-    return [
-        BranchResponse(
-            id=str(b.id),
-            name=b.name,
-            city=b.city,
-            address=b.address,
-            phone=b.phone,
-            working_hours=b.working_hours if isinstance(b.working_hours, dict) else None,
-            is_active=b.is_active
-        )
-        for b in branches
-    ]
-
-
-@router.get("/appointments", response_model=List[AppointmentResponse])
-async def get_appointments(
-    status: Optional[str] = Query(None, description="فلترة حسب الحالة"),
-    from_date: Optional[date] = Query(None, description="من تاريخ"),
-    to_date: Optional[date] = Query(None, description="إلى تاريخ"),
-    limit: int = Query(100, description="عدد النتائج"),
-    db: Session = Depends(get_db)
-):
-    """جلب قائمة المواعيد"""
-    query = db.query(Appointment)
-    
-    if status:
-        query = query.filter(Appointment.status == status)
-    
-    if from_date:
-        query = query.filter(Appointment.datetime >= datetime.combine(from_date, datetime.min.time()))
-    
-    if to_date:
-        query = query.filter(Appointment.datetime <= datetime.combine(to_date, datetime.max.time()))
-    
-    appointments = query.order_by(desc(Appointment.datetime)).limit(limit).all()
-    
-    return [
-        AppointmentResponse(
-            id=str(a.id),
-            patient_name=a.patient_name,
-            patient_id=str(a.patient_id) if a.patient_id else None,
-            phone=a.phone,
-            branch_id=str(a.branch_id),
-            doctor_id=str(a.doctor_id) if a.doctor_id else None,
-            service_id=str(a.service_id),
-            datetime=a.datetime,
-            status=a.status,
-            channel=a.channel,
-            appointment_type=a.appointment_type,
-            notes=a.notes,
-            created_at=a.created_at
-        )
-        for a in appointments
-    ]
-
-
-@router.get("/patients", response_model=List[PatientResponse])
-async def get_patients(
-    active_only: bool = Query(True, description="جلب المرضى النشطين فقط"),
-    limit: int = Query(100, description="عدد النتائج"),
-    db: Session = Depends(get_db)
-):
-    """جلب قائمة المرضى"""
-    query = db.query(Patient)
-    
-    if active_only:
-        query = query.filter(Patient.is_active == True)
-    
-    patients = query.limit(limit).all()
-    
-    return [
-        PatientResponse(
-            id=str(p.id),
-            full_name=p.full_name,
-            phone_number=p.phone_number,
-            email=p.email,
-            date_of_birth=p.date_of_birth,
-            gender=p.gender,
-            is_active=p.is_active
-        )
-        for p in patients
-    ]
-
-
-@router.get("/conversations", response_model=List[ConversationResponse])
-async def get_conversations(
-    channel: Optional[str] = Query(None, description="فلترة حسب القناة"),
-    from_date: Optional[date] = Query(None, description="من تاريخ"),
-    to_date: Optional[date] = Query(None, description="إلى تاريخ"),
-    limit: int = Query(100, description="عدد النتائج"),
-    db: Session = Depends(get_db)
-):
-    """جلب قائمة المحادثات"""
-    query = db.query(Conversation)
-    
-    if channel:
-        query = query.filter(Conversation.channel == channel)
-    
-    if from_date:
-        query = query.filter(Conversation.created_at >= datetime.combine(from_date, datetime.min.time()))
-    
-    if to_date:
-        query = query.filter(Conversation.created_at <= datetime.combine(to_date, datetime.max.time()))
-    
-    conversations = query.order_by(desc(Conversation.created_at)).limit(limit).all()
-    
-    return [
-        ConversationResponse(
-            id=str(c.id),
-            user_id=c.user_id,
-            channel=c.channel,
-            user_message=c.user_message,
-            bot_reply=c.bot_reply,
-            intent=c.intent,
-            created_at=c.created_at
-        )
-        for c in conversations
-    ]
-
-
-# ==================== Write Endpoints ====================
-
-@router.post("/appointments", response_model=AppointmentResponse)
-async def create_appointment(
-    appointment_data: AppointmentCreate,
-    db: Session = Depends(get_db)
-):
-    """إنشاء موعد جديد من n8n"""
+    """جلب المواعيد لـ n8n"""
     try:
-        appointment = Appointment(**appointment_data.model_dump())
-        db.add(appointment)
-        db.commit()
-        db.refresh(appointment)
+        query = db.query(Appointment)
         
-        return AppointmentResponse(
-            id=str(appointment.id),
-            patient_name=appointment.patient_name,
-            patient_id=str(appointment.patient_id) if appointment.patient_id else None,
-            phone=appointment.phone,
-            branch_id=str(appointment.branch_id),
-            doctor_id=str(appointment.doctor_id) if appointment.doctor_id else None,
-            service_id=str(appointment.service_id),
-            datetime=appointment.datetime,
-            status=appointment.status,
-            channel=appointment.channel,
-            appointment_type=appointment.appointment_type,
-            notes=appointment.notes,
-            created_at=appointment.created_at
+        if status:
+            query = query.filter(Appointment.status == status)
+        
+        if from_date:
+            try:
+                from_dt = datetime.fromisoformat(from_date)
+                query = query.filter(Appointment.datetime >= from_dt)
+            except:
+                pass
+        
+        if to_date:
+            try:
+                to_dt = datetime.fromisoformat(to_date)
+                query = query.filter(Appointment.datetime <= to_dt)
+            except:
+                pass
+        
+        appointments = query.order_by(desc(Appointment.datetime)).limit(limit).all()
+        
+        data = []
+        for apt in appointments:
+            data.append({
+                "id": str(apt.id),
+                "patient_name": apt.patient_name,
+                "phone": apt.phone,
+                "patient_id": str(apt.patient_id) if apt.patient_id else None,
+                "branch_id": str(apt.branch_id),
+                "doctor_id": str(apt.doctor_id) if apt.doctor_id else None,
+                "service_id": str(apt.service_id),
+                "datetime": apt.datetime.isoformat(),
+                "channel": apt.channel,
+                "status": apt.status,
+                "appointment_type": apt.appointment_type,
+                "notes": apt.notes,
+                "created_at": apt.created_at.isoformat(),
+                "updated_at": apt.updated_at.isoformat()
+            })
+        
+        return N8NResponse(
+            success=True,
+            data=data,
+            count=len(data)
         )
     except Exception as e:
-        db.rollback()
-        logger.error(f"خطأ في إنشاء الموعد: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"فشل إنشاء الموعد: {str(e)}")
+        logger.error(f"خطأ في جلب المواعيد: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-# ==================== Webhook Endpoints ====================
-
-@router.post("/webhook/appointment-created")
-async def webhook_appointment_created(
-    data: Dict[str, Any],
-    db: Session = Depends(get_db)
+# ==================== المرضى ====================
+@router.get("/patients", response_model=N8NResponse)
+async def get_patients_n8n(
+    is_active: Optional[bool] = Query(None, description="المرضى النشطين فقط"),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
 ):
-    """
-    Webhook لاستقبال إشعارات من n8n عند إنشاء موعد
-    يمكن استخدامه لإرسال إشعارات أو تحديثات
-    """
-    logger.info(f"📨 استقبال webhook من n8n: {data}")
-    
-    # يمكنك إضافة منطق هنا للتعامل مع البيانات
-    # مثلاً: إرسال إشعار، تحديث حالة، إلخ
-    
-    return {"status": "received", "message": "تم استقبال البيانات بنجاح"}
-
-
-class UpdateAppointmentRequest(BaseModel):
-    """طلب تحديث موعد"""
-    appointment_id: str
-    status: Optional[str] = None
-    notes: Optional[str] = None
-
-
-@router.post("/webhook/update-appointment")
-async def webhook_update_appointment(
-    data: UpdateAppointmentRequest,
-    db: Session = Depends(get_db)
-):
-    """تحديث موعد من n8n"""
+    """جلب المرضى لـ n8n"""
     try:
-        appointment = db.query(Appointment).filter(Appointment.id == data.appointment_id).first()
+        query = db.query(Patient)
         
-        if not appointment:
-            raise HTTPException(status_code=404, detail="الموعد غير موجود")
+        if is_active is not None:
+            query = query.filter(Patient.is_active == is_active)
         
-        if data.status:
-            appointment.status = data.status
-        if data.notes:
-            appointment.notes = data.notes
+        patients = query.order_by(desc(Patient.created_at)).limit(limit).all()
         
-        db.commit()
-        db.refresh(appointment)
+        data = []
+        for patient in patients:
+            data.append({
+                "id": str(patient.id),
+                "full_name": patient.full_name,
+                "date_of_birth": patient.date_of_birth.isoformat() if patient.date_of_birth else None,
+                "gender": patient.gender,
+                "phone_number": patient.phone_number,
+                "email": patient.email,
+                "address": patient.address,
+                "is_active": patient.is_active,
+                "created_at": patient.created_at.isoformat(),
+                "updated_at": patient.updated_at.isoformat()
+            })
         
-        return {
-            "status": "success",
-            "message": "تم تحديث الموعد بنجاح",
-            "appointment": {
-                "id": str(appointment.id),
-                "status": appointment.status,
-                "notes": appointment.notes
+        return N8NResponse(
+            success=True,
+            data=data,
+            count=len(data)
+        )
+    except Exception as e:
+        logger.error(f"خطأ في جلب المرضى: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== الأطباء ====================
+@router.get("/doctors", response_model=N8NResponse)
+async def get_doctors_n8n(
+    is_active: Optional[bool] = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """جلب الأطباء لـ n8n"""
+    try:
+        query = db.query(Doctor)
+        
+        if is_active is not None:
+            query = query.filter(Doctor.is_active == is_active)
+        
+        doctors = query.limit(limit).all()
+        
+        data = []
+        for doctor in doctors:
+            data.append({
+                "id": str(doctor.id),
+                "name": doctor.name,
+                "specialty": doctor.specialty,
+                "license_number": doctor.license_number,
+                "phone_number": doctor.phone_number,
+                "email": doctor.email,
+                "bio": doctor.bio,
+                "qualifications": doctor.qualifications,
+                "experience_years": doctor.experience_years,
+                "working_hours": doctor.working_hours,
+                "branch_id": str(doctor.branch_id) if doctor.branch_id else None,
+                "is_active": doctor.is_active,
+                "created_at": doctor.created_at.isoformat(),
+                "updated_at": doctor.updated_at.isoformat()
+            })
+        
+        return N8NResponse(
+            success=True,
+            data=data,
+            count=len(data)
+        )
+    except Exception as e:
+        logger.error(f"خطأ في جلب الأطباء: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== الفواتير ====================
+@router.get("/invoices", response_model=N8NResponse)
+async def get_invoices_n8n(
+    payment_status: Optional[str] = Query(None, description="حالة الدفع (pending, paid, partially_paid, cancelled)"),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """جلب الفواتير لـ n8n"""
+    try:
+        query = db.query(Invoice)
+        
+        if payment_status:
+            query = query.filter(Invoice.payment_status == payment_status)
+        
+        if from_date:
+            try:
+                from_dt = datetime.fromisoformat(from_date)
+                query = query.filter(Invoice.invoice_date >= from_dt)
+            except:
+                pass
+        
+        if to_date:
+            try:
+                to_dt = datetime.fromisoformat(to_date)
+                query = query.filter(Invoice.invoice_date <= to_dt)
+            except:
+                pass
+        
+        invoices = query.order_by(desc(Invoice.invoice_date)).limit(limit).all()
+        
+        data = []
+        for invoice in invoices:
+            data.append({
+                "id": str(invoice.id),
+                "invoice_number": invoice.invoice_number,
+                "patient_id": str(invoice.patient_id),
+                "appointment_id": str(invoice.appointment_id) if invoice.appointment_id else None,
+                "invoice_date": invoice.invoice_date.isoformat(),
+                "sub_total": invoice.sub_total,
+                "discount_amount": invoice.discount_amount,
+                "tax_amount": invoice.tax_amount,
+                "total_amount": invoice.total_amount,
+                "payment_status": invoice.payment_status,
+                "payment_method": invoice.payment_method,
+                "notes": invoice.notes,
+                "created_at": invoice.created_at.isoformat(),
+                "updated_at": invoice.updated_at.isoformat()
+            })
+        
+        return N8NResponse(
+            success=True,
+            data=data,
+            count=len(data)
+        )
+    except Exception as e:
+        logger.error(f"خطأ في جلب الفواتير: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== المحادثات ====================
+@router.get("/conversations", response_model=N8NResponse)
+async def get_conversations_n8n(
+    channel: Optional[str] = Query(None, description="القناة (whatsapp, instagram, etc.)"),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """جلب المحادثات لـ n8n"""
+    try:
+        query = db.query(Conversation)
+        
+        if channel:
+            query = query.filter(Conversation.channel == channel)
+        
+        if from_date:
+            try:
+                from_dt = datetime.fromisoformat(from_date)
+                query = query.filter(Conversation.created_at >= from_dt)
+            except:
+                pass
+        
+        if to_date:
+            try:
+                to_dt = datetime.fromisoformat(to_date)
+                query = query.filter(Conversation.created_at <= to_dt)
+            except:
+                pass
+        
+        conversations = query.order_by(desc(Conversation.created_at)).limit(limit).all()
+        
+        data = []
+        for conv in conversations:
+            data.append({
+                "id": str(conv.id),
+                "user_id": conv.user_id,
+                "channel": conv.channel,
+                "user_message": conv.user_message,
+                "bot_reply": conv.bot_reply,
+                "intent": conv.intent,
+                "db_context_used": conv.db_context_used,
+                "unrecognized": conv.unrecognized,
+                "needs_handoff": conv.needs_handoff,
+                "created_at": conv.created_at.isoformat(),
+                "updated_at": conv.updated_at.isoformat()
+            })
+        
+        return N8NResponse(
+            success=True,
+            data=data,
+            count=len(data)
+        )
+    except Exception as e:
+        logger.error(f"خطأ في جلب المحادثات: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== إحصائيات سريعة ====================
+@router.get("/stats", response_model=N8NResponse)
+async def get_stats_n8n(
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """إحصائيات سريعة لـ n8n"""
+    try:
+        stats = {
+            "appointments": {
+                "total": db.query(func.count(Appointment.id)).scalar(),
+                "pending": db.query(func.count(Appointment.id)).filter(Appointment.status == "pending").scalar(),
+                "confirmed": db.query(func.count(Appointment.id)).filter(Appointment.status == "confirmed").scalar(),
+                "completed": db.query(func.count(Appointment.id)).filter(Appointment.status == "completed").scalar(),
+            },
+            "patients": {
+                "total": db.query(func.count(Patient.id)).scalar(),
+                "active": db.query(func.count(Patient.id)).filter(Patient.is_active == True).scalar(),
+            },
+            "doctors": {
+                "total": db.query(func.count(Doctor.id)).scalar(),
+                "active": db.query(func.count(Doctor.id)).filter(Doctor.is_active == True).scalar(),
+            },
+            "invoices": {
+                "total": db.query(func.count(Invoice.id)).scalar(),
+                "paid": db.query(func.count(Invoice.id)).filter(Invoice.payment_status == "paid").scalar(),
+                "pending": db.query(func.count(Invoice.id)).filter(Invoice.payment_status == "pending").scalar(),
+                "total_amount": db.query(func.sum(Invoice.total_amount)).scalar() or 0,
+            },
+            "conversations": {
+                "total": db.query(func.count(Conversation.id)).scalar(),
+                "today": db.query(func.count(Conversation.id)).filter(
+                    func.date(Conversation.created_at) == date.today()
+                ).scalar(),
             }
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        logger.error(f"خطأ في تحديث الموعد: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"فشل تحديث الموعد: {str(e)}")
-
-
-# ==================== Summary Endpoints ====================
-
-@router.get("/summary")
-async def get_summary(db: Session = Depends(get_db)):
-    """ملخص سريع للبيانات"""
-    try:
-        doctors_count = db.query(Doctor).filter(Doctor.is_active == True).count()
-        services_count = db.query(Service).filter(Service.is_active == True).count()
-        branches_count = db.query(Branch).filter(Branch.is_active == True).count()
-        appointments_count = db.query(Appointment).filter(Appointment.status == "pending").count()
-        patients_count = db.query(Patient).filter(Patient.is_active == True).count()
         
-        return {
-            "doctors": doctors_count,
-            "services": services_count,
-            "branches": branches_count,
-            "pending_appointments": appointments_count,
-            "patients": patients_count
-        }
+        return N8NResponse(
+            success=True,
+            data=stats
+        )
     except Exception as e:
-        logger.error(f"خطأ في جلب الملخص: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"فشل جلب الملخص: {str(e)}")
+        logger.error(f"خطأ في جلب الإحصائيات: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
