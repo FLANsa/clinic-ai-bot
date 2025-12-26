@@ -4,7 +4,7 @@ Database Management Router - إدارة قاعدة البيانات
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, inspect as sqlalchemy_inspect
 from pydantic import BaseModel
 from typing import Dict, Any
 from app.db.session import get_db
@@ -91,6 +91,86 @@ async def init_database(
         Base.metadata.create_all(bind=pgvector_engine)
         details["tables"] = "تم إنشاء جميع الجداول"
         logger.info("✅ تم إنشاء جميع الجداول بنجاح")
+        
+        # 2.5. تحديث الجداول الموجودة بإضافة الأعمدة المفقودة
+        logger.info("جاري تحديث الجداول الموجودة...")
+        inspector = sqlalchemy_inspect(pgvector_engine)
+        migration_results = []
+        
+        with pgvector_engine.connect() as conn:
+            # تحديث جدول conversations
+            if "conversations" in inspector.get_table_names():
+                conv_columns = [col["name"] for col in inspector.get_columns("conversations")]
+                
+                if "user_message" not in conv_columns:
+                    logger.info("➕ إضافة عمود user_message لجدول conversations...")
+                    try:
+                        conn.execute(text("ALTER TABLE conversations ADD COLUMN user_message TEXT"))
+                        migration_results.append("تم إضافة user_message لـ conversations")
+                        logger.info("✅ تم إضافة user_message")
+                    except Exception as e:
+                        logger.warning(f"⚠️  لم يتم إضافة user_message: {str(e)[:100]}")
+                
+                if "bot_reply" not in conv_columns:
+                    logger.info("➕ إضافة عمود bot_reply لجدول conversations...")
+                    try:
+                        conn.execute(text("ALTER TABLE conversations ADD COLUMN bot_reply TEXT"))
+                        migration_results.append("تم إضافة bot_reply لـ conversations")
+                        logger.info("✅ تم إضافة bot_reply")
+                    except Exception as e:
+                        logger.warning(f"⚠️  لم يتم إضافة bot_reply: {str(e)[:100]}")
+            
+            # تحديث جدول doctors
+            if "doctors" in inspector.get_table_names():
+                doctors_columns = [col["name"] for col in inspector.get_columns("doctors")]
+                
+                new_doctor_columns = {
+                    "license_number": "VARCHAR",
+                    "phone_number": "VARCHAR",
+                    "email": "VARCHAR",
+                    "qualifications": "TEXT",
+                    "experience_years": "VARCHAR",
+                    "working_hours": "JSONB"
+                }
+                
+                for col_name, col_type in new_doctor_columns.items():
+                    if col_name not in doctors_columns:
+                        logger.info(f"➕ إضافة عمود {col_name} لجدول doctors...")
+                        try:
+                            conn.execute(text(f"ALTER TABLE doctors ADD COLUMN {col_name} {col_type}"))
+                            migration_results.append(f"تم إضافة {col_name} لـ doctors")
+                            logger.info(f"✅ تم إضافة {col_name}")
+                        except Exception as e:
+                            logger.warning(f"⚠️  لم يتم إضافة {col_name}: {str(e)[:100]}")
+            
+            # تحديث جدول appointments
+            if "appointments" in inspector.get_table_names():
+                appointments_columns = [col["name"] for col in inspector.get_columns("appointments")]
+                
+                if "patient_id" not in appointments_columns:
+                    logger.info("➕ إضافة عمود patient_id لجدول appointments...")
+                    try:
+                        conn.execute(text("ALTER TABLE appointments ADD COLUMN patient_id UUID"))
+                        migration_results.append("تم إضافة patient_id لـ appointments")
+                        logger.info("✅ تم إضافة patient_id")
+                    except Exception as e:
+                        logger.warning(f"⚠️  لم يتم إضافة patient_id: {str(e)[:100]}")
+                
+                if "appointment_type" not in appointments_columns:
+                    logger.info("➕ إضافة عمود appointment_type لجدول appointments...")
+                    try:
+                        conn.execute(text("ALTER TABLE appointments ADD COLUMN appointment_type VARCHAR"))
+                        migration_results.append("تم إضافة appointment_type لـ appointments")
+                        logger.info("✅ تم إضافة appointment_type")
+                    except Exception as e:
+                        logger.warning(f"⚠️  لم يتم إضافة appointment_type: {str(e)[:100]}")
+        
+        if migration_results:
+            details["migrations"] = migration_results
+            logger.info(f"✅ تم تحديث {len(migration_results)} جدول/عمود")
+        else:
+            details["migrations"] = "لا توجد تحديثات مطلوبة"
+            logger.info("✅ جميع الجداول محدثة")
         
         # 3. إنشاء indexes لتحسين الأداء
         logger.info("جاري إنشاء indexes...")
