@@ -547,6 +547,7 @@ async def drop_all_tables(
         from sqlalchemy import text, inspect as sqlalchemy_inspect
         
         # إنشاء محرك قاعدة البيانات
+        # استخدام AUTOCOMMIT لتجنب مشاكل الـ transactions
         engine = create_engine(settings.DATABASE_URL, isolation_level="AUTOCOMMIT")
         inspector = sqlalchemy_inspect(engine)
         
@@ -563,22 +564,21 @@ async def drop_all_tables(
         dropped_tables = []
         
         # حذف جميع الجداول
+        # استخدام DROP TABLE CASCADE لحذف الجداول والعلاقات تلقائياً
+        # CASCADE يحذف الجداول المعتمدة (Foreign Keys) تلقائياً
+        # لا حاجة لتعطيل Foreign Keys لأن CASCADE يتعامل معها
         with engine.connect() as conn:
-            # تعطيل Foreign Key Constraints مؤقتاً
-            conn.execute(text("SET session_replication_role = 'replica'"))
-            
-            # حذف جميع الجداول
+            # حذف جميع الجداول مباشرة
+            # CASCADE سيتعامل مع Foreign Keys تلقائياً
             for table_name in all_tables:
                 try:
-                    # استخدام DROP TABLE CASCADE لحذف الجدول والعلاقات
+                    # DROP TABLE CASCADE يحذف الجدول والعلاقات تلقائياً
                     conn.execute(text(f"DROP TABLE IF EXISTS {table_name} CASCADE"))
                     dropped_tables.append(table_name)
                     logger.warning(f"🗑️  تم حذف جدول: {table_name}")
                 except Exception as e:
                     logger.error(f"❌ فشل حذف جدول {table_name}: {str(e)}")
-            
-            # إعادة تفعيل Foreign Key Constraints
-            conn.execute(text("SET session_replication_role = 'origin'"))
+                    # المتابعة مع الجداول الأخرى حتى لو فشل أحدها
         
         logger.critical(f"🚨 تم حذف {len(dropped_tables)} جدول من قاعدة البيانات!")
         
