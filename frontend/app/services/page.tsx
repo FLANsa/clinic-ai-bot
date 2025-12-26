@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
+import { getServices } from '../../lib/api-client'
 
 interface Service {
   id: string
@@ -21,14 +22,14 @@ export default function ServicesPage() {
 
   const fetchServices = async () => {
     try {
-      const res = await fetch('http://localhost:8000/admin/services', {
-        headers: { 'X-API-Key': 'clinic-admin-secure-key-2024' }
-      })
-      if (!res.ok) throw new Error('فشل في جلب الخدمات')
-      const data = await res.json()
+      setLoading(true)
+      setError(null)
+      const data = await getServices()
       setServices(data.services || [])
     } catch (err: any) {
-      setError(err.message)
+      setError(err.message || 'فشل في جلب الخدمات')
+      console.error('❌ خطأ في جلب الخدمات:', err)
+      setServices([])
     } finally {
       setLoading(false)
     }

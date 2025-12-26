@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
+import { getFaqs } from '../../lib/api-client'
 
 interface FAQ {
   id: string
@@ -20,14 +21,14 @@ export default function FAQPage() {
 
   const fetchFAQs = async () => {
     try {
-      const res = await fetch('http://localhost:8000/admin/faqs', {
-        headers: { 'X-API-Key': 'clinic-admin-secure-key-2024' }
-      })
-      if (!res.ok) throw new Error('فشل في جلب الأسئلة')
-      const data = await res.json()
+      setLoading(true)
+      setError(null)
+      const data = await getFaqs()
       setFaqs(data.faqs || [])
     } catch (err: any) {
-      setError(err.message)
+      setError(err.message || 'فشل في جلب الأسئلة الشائعة')
+      console.error('❌ خطأ في جلب الأسئلة الشائعة:', err)
+      setFaqs([])
     } finally {
       setLoading(false)
     }

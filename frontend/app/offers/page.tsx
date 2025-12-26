@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
+import { getOffers } from '../../lib/api-client'
 
 interface Offer {
   id: string
@@ -24,14 +25,14 @@ export default function OffersPage() {
 
   const fetchOffers = async () => {
     try {
-      const res = await fetch('http://localhost:8000/admin/offers', {
-        headers: { 'X-API-Key': 'clinic-admin-secure-key-2024' }
-      })
-      if (!res.ok) throw new Error('فشل في جلب العروض')
-      const data = await res.json()
+      setLoading(true)
+      setError(null)
+      const data = await getOffers()
       setOffers(data.offers || [])
     } catch (err: any) {
-      setError(err.message)
+      setError(err.message || 'فشل في جلب العروض')
+      console.error('❌ خطأ في جلب العروض:', err)
+      setOffers([])
     } finally {
       setLoading(false)
     }

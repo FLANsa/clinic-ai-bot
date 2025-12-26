@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
+import { getDoctors } from '../../lib/api-client'
 
 interface Doctor {
   id: string
@@ -21,14 +22,14 @@ export default function DoctorsPage() {
 
   const fetchDoctors = async () => {
     try {
-      const res = await fetch('http://localhost:8000/admin/doctors', {
-        headers: { 'X-API-Key': 'clinic-admin-secure-key-2024' }
-      })
-      if (!res.ok) throw new Error('فشل في جلب الأطباء')
-      const data = await res.json()
+      setLoading(true)
+      setError(null)
+      const data = await getDoctors()
       setDoctors(data.doctors || [])
     } catch (err: any) {
-      setError(err.message)
+      setError(err.message || 'فشل في جلب الأطباء')
+      console.error('❌ خطأ في جلب الأطباء:', err)
+      setDoctors([])
     } finally {
       setLoading(false)
     }
