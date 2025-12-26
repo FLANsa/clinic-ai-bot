@@ -53,11 +53,18 @@ class ChatAgent:
             db_context = self._load_db_context(conv_input.message, conversation_history)
             db_context_used = bool(db_context)
             
+            if db_context:
+                logger.info(f"تم جلب سياق من قاعدة البيانات ({len(db_context)} حرف)")
+            else:
+                logger.warning("لم يتم جلب أي سياق من قاعدة البيانات - قد تكون قاعدة البيانات فارغة")
+            
             # 4. بناء System Prompt
             system_prompt = build_system_prompt(
                 channel=conv_input.channel,
                 context=db_context
             )
+            
+            logger.debug(f"System Prompt يحتوي على {len(system_prompt)} حرف")
             
             # 5. بناء رسائل المحادثة
             messages = self._build_messages(
@@ -145,28 +152,42 @@ class ChatAgent:
             # جلب وتنسيق الأطباء
             if need_doctors:
                 doctors = self._get_doctors_smart(message_lower)
+                logger.info(f"تم جلب {len(doctors)} طبيب من قاعدة البيانات")
                 if doctors:
                     formatted_sections.append(self._format_doctors_table(doctors))
+                else:
+                    logger.warning("لا توجد أطباء في قاعدة البيانات")
             
             # جلب وتنسيق الخدمات
             if need_services:
                 services = self._get_services_smart(message_lower)
+                logger.info(f"تم جلب {len(services)} خدمة من قاعدة البيانات")
                 if services:
                     formatted_sections.append(self._format_services_table(services))
+                else:
+                    logger.warning("لا توجد خدمات في قاعدة البيانات")
             
             # جلب وتنسيق الفروع
             if need_branches:
                 branches = self.db.query(Branch).filter(Branch.is_active == True).limit(10).all()
+                logger.info(f"تم جلب {len(branches)} فرع من قاعدة البيانات")
                 if branches:
                     formatted_sections.append(self._format_branches_table(branches))
+                else:
+                    logger.warning("لا توجد فروع في قاعدة البيانات")
             
             # جلب وتنسيق العروض
             if need_offers:
                 offers = self.db.query(Offer).filter(Offer.is_active == True).limit(10).all()
+                logger.info(f"تم جلب {len(offers)} عرض من قاعدة البيانات")
                 if offers:
                     formatted_sections.append(self._format_offers_table(offers))
+                else:
+                    logger.warning("لا توجد عروض في قاعدة البيانات")
             
-            return "\n\n".join(formatted_sections) if formatted_sections else ""
+            result = "\n\n".join(formatted_sections) if formatted_sections else ""
+            logger.info(f"السياق النهائي من قاعدة البيانات: {len(result)} حرف")
+            return result
             
         except Exception as e:
             logger.error(f"خطأ في جلب معلومات قاعدة البيانات: {str(e)}", exc_info=True)
