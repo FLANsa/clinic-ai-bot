@@ -27,6 +27,7 @@ from app.api.admin import db_router
 # from app.api.google import google_reviews_router  # To be implemented
 from app.api.test import chat_router as test_chat_router
 from app.api.test import whatsapp_test_router
+from app.api.n8n import n8n_router
 from app.logging_config import setup_logging
 import os
 
@@ -168,6 +169,9 @@ app.include_router(db_router.router)
 
 # Google - To be implemented
 # app.include_router(google_reviews_router.router)
+
+# N8N Integration
+app.include_router(n8n_router.router)
 
 # Test
 app.include_router(test_chat_router.router)
