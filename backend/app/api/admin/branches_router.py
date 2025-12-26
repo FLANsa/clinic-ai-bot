@@ -26,10 +26,18 @@ class BranchCreate(BaseModel):
 @router.get("/")
 async def list_branches(
     db: Session = Depends(get_db),
-    api_key: str = Depends(verify_api_key)
+    api_key: str = Depends(verify_api_key),
+    active_only: bool = True
 ):
     """قائمة بجميع الفروع"""
-    branches = db.query(Branch).all()
+    query = db.query(Branch)
+    
+    # إذا كان active_only=True، نعرض فقط الفروع النشطة
+    if active_only:
+        query = query.filter(Branch.is_active == True)
+    
+    branches = query.order_by(Branch.created_at.desc()).all()
+    
     return {
         "branches": [
             {
@@ -41,11 +49,12 @@ async def list_branches(
                 "phone": branch.phone,
                 "working_hours": branch.working_hours,
                 "is_active": branch.is_active,
-                "created_at": branch.created_at.isoformat(),
-                "updated_at": branch.updated_at.isoformat()
+                "created_at": branch.created_at.isoformat() if branch.created_at else None,
+                "updated_at": branch.updated_at.isoformat() if branch.updated_at else None
             }
             for branch in branches
-        ]
+        ],
+        "total": len(branches)
     }
 
 
