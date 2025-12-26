@@ -101,6 +101,7 @@ async def init_database(
             # تحديث جدول conversations
             if "conversations" in inspector.get_table_names():
                 conv_columns = [col["name"] for col in inspector.get_columns("conversations")]
+                logger.info(f"📋 أعمدة conversations الحالية: {', '.join(conv_columns)}")
                 
                 if "user_message" not in conv_columns:
                     logger.info("➕ إضافة عمود user_message لجدول conversations...")
@@ -109,7 +110,11 @@ async def init_database(
                         migration_results.append("تم إضافة user_message لـ conversations")
                         logger.info("✅ تم إضافة user_message")
                     except Exception as e:
-                        logger.warning(f"⚠️  لم يتم إضافة user_message: {str(e)[:100]}")
+                        error_msg = str(e)
+                        if "already exists" in error_msg.lower() or "duplicate" in error_msg.lower():
+                            logger.info("ℹ️  العمود user_message موجود بالفعل")
+                        else:
+                            logger.warning(f"⚠️  لم يتم إضافة user_message: {error_msg[:100]}")
                 
                 if "bot_reply" not in conv_columns:
                     logger.info("➕ إضافة عمود bot_reply لجدول conversations...")
@@ -118,11 +123,16 @@ async def init_database(
                         migration_results.append("تم إضافة bot_reply لـ conversations")
                         logger.info("✅ تم إضافة bot_reply")
                     except Exception as e:
-                        logger.warning(f"⚠️  لم يتم إضافة bot_reply: {str(e)[:100]}")
+                        error_msg = str(e)
+                        if "already exists" in error_msg.lower() or "duplicate" in error_msg.lower():
+                            logger.info("ℹ️  العمود bot_reply موجود بالفعل")
+                        else:
+                            logger.warning(f"⚠️  لم يتم إضافة bot_reply: {error_msg[:100]}")
             
             # تحديث جدول doctors
             if "doctors" in inspector.get_table_names():
                 doctors_columns = [col["name"] for col in inspector.get_columns("doctors")]
+                logger.info(f"📋 أعمدة doctors الحالية: {', '.join(doctors_columns)}")
                 
                 new_doctor_columns = {
                     "license_number": "VARCHAR",
@@ -141,11 +151,17 @@ async def init_database(
                             migration_results.append(f"تم إضافة {col_name} لـ doctors")
                             logger.info(f"✅ تم إضافة {col_name}")
                         except Exception as e:
-                            logger.warning(f"⚠️  لم يتم إضافة {col_name}: {str(e)[:100]}")
+                            error_msg = str(e)
+                            # إذا كان العمود موجود بالفعل، نتجاهل الخطأ
+                            if "already exists" in error_msg.lower() or "duplicate" in error_msg.lower():
+                                logger.info(f"ℹ️  العمود {col_name} موجود بالفعل")
+                            else:
+                                logger.warning(f"⚠️  لم يتم إضافة {col_name}: {error_msg[:100]}")
             
             # تحديث جدول appointments
             if "appointments" in inspector.get_table_names():
                 appointments_columns = [col["name"] for col in inspector.get_columns("appointments")]
+                logger.info(f"📋 أعمدة appointments الحالية: {', '.join(appointments_columns)}")
                 
                 if "patient_id" not in appointments_columns:
                     logger.info("➕ إضافة عمود patient_id لجدول appointments...")
@@ -154,7 +170,11 @@ async def init_database(
                         migration_results.append("تم إضافة patient_id لـ appointments")
                         logger.info("✅ تم إضافة patient_id")
                     except Exception as e:
-                        logger.warning(f"⚠️  لم يتم إضافة patient_id: {str(e)[:100]}")
+                        error_msg = str(e)
+                        if "already exists" in error_msg.lower() or "duplicate" in error_msg.lower():
+                            logger.info("ℹ️  العمود patient_id موجود بالفعل")
+                        else:
+                            logger.warning(f"⚠️  لم يتم إضافة patient_id: {error_msg[:100]}")
                 
                 if "appointment_type" not in appointments_columns:
                     logger.info("➕ إضافة عمود appointment_type لجدول appointments...")
@@ -163,7 +183,11 @@ async def init_database(
                         migration_results.append("تم إضافة appointment_type لـ appointments")
                         logger.info("✅ تم إضافة appointment_type")
                     except Exception as e:
-                        logger.warning(f"⚠️  لم يتم إضافة appointment_type: {str(e)[:100]}")
+                        error_msg = str(e)
+                        if "already exists" in error_msg.lower() or "duplicate" in error_msg.lower():
+                            logger.info("ℹ️  العمود appointment_type موجود بالفعل")
+                        else:
+                            logger.warning(f"⚠️  لم يتم إضافة appointment_type: {error_msg[:100]}")
         
         if migration_results:
             details["migrations"] = migration_results
