@@ -189,6 +189,69 @@ async def init_database(
                     ON appointments(status)
                     """
                 },
+                {
+                    "name": "idx_appointments_patient_id",
+                    "sql": """
+                    CREATE INDEX IF NOT EXISTS idx_appointments_patient_id 
+                    ON appointments(patient_id) WHERE patient_id IS NOT NULL
+                    """
+                },
+                {
+                    "name": "idx_patients_phone_number",
+                    "sql": """
+                    CREATE INDEX IF NOT EXISTS idx_patients_phone_number 
+                    ON patients(phone_number)
+                    """
+                },
+                {
+                    "name": "idx_treatments_patient_id",
+                    "sql": """
+                    CREATE INDEX IF NOT EXISTS idx_treatments_patient_id 
+                    ON treatments(patient_id)
+                    """
+                },
+                {
+                    "name": "idx_treatments_treatment_date",
+                    "sql": """
+                    CREATE INDEX IF NOT EXISTS idx_treatments_treatment_date 
+                    ON treatments(treatment_date DESC)
+                    """
+                },
+                {
+                    "name": "idx_invoices_patient_id",
+                    "sql": """
+                    CREATE INDEX IF NOT EXISTS idx_invoices_patient_id 
+                    ON invoices(patient_id)
+                    """
+                },
+                {
+                    "name": "idx_invoices_payment_status",
+                    "sql": """
+                    CREATE INDEX IF NOT EXISTS idx_invoices_payment_status 
+                    ON invoices(payment_status)
+                    """
+                },
+                {
+                    "name": "idx_invoices_invoice_date",
+                    "sql": """
+                    CREATE INDEX IF NOT EXISTS idx_invoices_invoice_date 
+                    ON invoices(invoice_date DESC)
+                    """
+                },
+                {
+                    "name": "idx_employees_position",
+                    "sql": """
+                    CREATE INDEX IF NOT EXISTS idx_employees_position 
+                    ON employees(position)
+                    """
+                },
+                {
+                    "name": "idx_doctors_license_number",
+                    "sql": """
+                    CREATE INDEX IF NOT EXISTS idx_doctors_license_number 
+                    ON doctors(license_number) WHERE license_number IS NOT NULL
+                    """
+                },
             ]
             
             created_count = 0
@@ -238,7 +301,8 @@ async def clean_database(
         from app.db.models import (
             Conversation, DocumentChunk, DocumentSource,
             Service, Doctor, Branch, Offer, FAQ,
-            Appointment, UnansweredQuestion, PendingHandoff
+            Appointment, UnansweredQuestion, PendingHandoff,
+            Patient, Treatment, Invoice, Employee
         )
         
         deleted_counts = {}
@@ -306,7 +370,31 @@ async def clean_database(
         deleted_counts["branches"] = branch_count
         logger.info(f"✅ تم حذف {branch_count} فرع")
         
-        # 11. حذف FAQs (لا يعتمد على أي شيء)
+        # 11. حذف Treatments (يعتمد على Patient, Appointment, Doctor)
+        treatment_count = db.query(Treatment).delete()
+        db.commit()
+        deleted_counts["treatments"] = treatment_count
+        logger.info(f"✅ تم حذف {treatment_count} علاج")
+        
+        # 12. حذف Invoices (يعتمد على Patient, Appointment)
+        invoice_count = db.query(Invoice).delete()
+        db.commit()
+        deleted_counts["invoices"] = invoice_count
+        logger.info(f"✅ تم حذف {invoice_count} فاتورة")
+        
+        # 13. حذف Patients (بعد حذف Treatments و Invoices و Appointments)
+        patient_count = db.query(Patient).delete()
+        db.commit()
+        deleted_counts["patients"] = patient_count
+        logger.info(f"✅ تم حذف {patient_count} مريض")
+        
+        # 14. حذف Employees (يعتمد على Branch)
+        employee_count = db.query(Employee).delete()
+        db.commit()
+        deleted_counts["employees"] = employee_count
+        logger.info(f"✅ تم حذف {employee_count} موظف")
+        
+        # 15. حذف FAQs (لا يعتمد على أي شيء)
         faq_count = db.query(FAQ).delete()
         db.commit()
         deleted_counts["faqs"] = faq_count
@@ -343,28 +431,46 @@ async def add_sample_data(
     logger.info("بدء إضافة البيانات التجريبية...")
     
     try:
-        from app.db.models import Branch, Doctor, Service, Offer, FAQ
-        from datetime import datetime, timedelta
+        from app.db.models import Branch, Doctor, Service, Offer, FAQ, Patient, Employee
+        from datetime import datetime, timedelta, date
         import uuid
         
         details = {}
         counts = {}
         
-        # 1. إضافة فروع
+        # 1. إضافة فروع عيادات عادل كير
         branches_data = [
             {
-                "name": "فرع الرياض",
+                "name": "عيادات عادل كير - فرع الرياض",
                 "city": "الرياض",
-                "address": "حي النخيل، شارع الملك فهد",
+                "address": "حي العليا، طريق الملك فهد",
                 "phone": "0112345678",
-                "working_hours": {"from": "9:00", "to": "21:00"}
+                "location_url": "https://maps.google.com/?q=24.7136,46.6753",
+                "working_hours": {
+                    "sunday": {"from": "9:00", "to": "21:00"},
+                    "monday": {"from": "9:00", "to": "21:00"},
+                    "tuesday": {"from": "9:00", "to": "21:00"},
+                    "wednesday": {"from": "9:00", "to": "21:00"},
+                    "thursday": {"from": "9:00", "to": "21:00"},
+                    "friday": {"from": "14:00", "to": "22:00"},
+                    "saturday": {"from": "9:00", "to": "21:00"}
+                }
             },
             {
-                "name": "فرع جدة",
+                "name": "عيادات عادل كير - فرع جدة",
                 "city": "جدة",
                 "address": "حي الزهراء، شارع التحلية",
                 "phone": "0123456789",
-                "working_hours": {"from": "10:00", "to": "22:00"}
+                "location_url": "https://maps.google.com/?q=21.5433,39.1728",
+                "working_hours": {
+                    "sunday": {"from": "9:00", "to": "21:00"},
+                    "monday": {"from": "9:00", "to": "21:00"},
+                    "tuesday": {"from": "9:00", "to": "21:00"},
+                    "wednesday": {"from": "9:00", "to": "21:00"},
+                    "thursday": {"from": "9:00", "to": "21:00"},
+                    "friday": {"from": "14:00", "to": "22:00"},
+                    "saturday": {"from": "9:00", "to": "21:00"}
+                }
             }
         ]
         
@@ -377,6 +483,7 @@ async def add_sample_data(
                 city=branch_data["city"],
                 address=branch_data["address"],
                 phone=branch_data["phone"],
+                location_url=branch_data.get("location_url"),
                 working_hours=branch_data["working_hours"],
                 is_active=True,
                 created_at=now,
@@ -392,24 +499,60 @@ async def add_sample_data(
         details["branches"] = [b.name for b in branches]
         logger.info(f"✅ تم إضافة {len(branches)} فرع")
         
-        # 2. إضافة أطباء
+        # 2. إضافة أطباء عيادات عادل كير
         doctors_data = [
             {
-                "name": "د. أحمد العلي",
-                "specialty": "طب الأسنان",
-                "bio": "متخصص في تبييض الأسنان وتجميلها",
-                "branch_id": branches[0].id if branches else None
-            },
-            {
-                "name": "د. سارة محمد",
-                "specialty": "طب الأسنان",
-                "bio": "متخصصة في تقويم الأسنان",
-                "branch_id": branches[0].id if branches else None
-            },
-            {
-                "name": "د. خالد السعيد",
+                "name": "د. عادل كير",
                 "specialty": "طب العائلة",
-                "bio": "طبيب عام متخصص في طب العائلة",
+                "license_number": "SA-MED-001",
+                "phone_number": "0501234567",
+                "email": "dr.adele@adelecare.com",
+                "bio": "استشاري طب العائلة مع خبرة تزيد عن 15 عاماً في الرعاية الصحية الشاملة",
+                "qualifications": "دكتوراه في الطب من جامعة الملك سعود، زمالة طب العائلة",
+                "experience_years": "15",
+                "working_hours": {
+                    "sunday": {"from": "9:00", "to": "17:00"},
+                    "monday": {"from": "9:00", "to": "17:00"},
+                    "tuesday": {"from": "9:00", "to": "17:00"},
+                    "wednesday": {"from": "9:00", "to": "17:00"},
+                    "thursday": {"from": "9:00", "to": "17:00"}
+                },
+                "branch_id": branches[0].id if branches else None
+            },
+            {
+                "name": "د. فاطمة أحمد",
+                "specialty": "طب الأطفال",
+                "license_number": "SA-MED-002",
+                "phone_number": "0502345678",
+                "email": "dr.fatima@adelecare.com",
+                "bio": "استشارية طب الأطفال متخصصة في رعاية الأطفال من الولادة حتى المراهقة",
+                "qualifications": "دكتوراه في طب الأطفال، زمالة طب الأطفال",
+                "experience_years": "12",
+                "working_hours": {
+                    "sunday": {"from": "10:00", "to": "18:00"},
+                    "monday": {"from": "10:00", "to": "18:00"},
+                    "tuesday": {"from": "10:00", "to": "18:00"},
+                    "wednesday": {"from": "10:00", "to": "18:00"},
+                    "thursday": {"from": "10:00", "to": "18:00"}
+                },
+                "branch_id": branches[0].id if branches else None
+            },
+            {
+                "name": "د. محمد السالم",
+                "specialty": "طب الباطنة",
+                "license_number": "SA-MED-003",
+                "phone_number": "0503456789",
+                "email": "dr.mohammed@adelecare.com",
+                "bio": "استشاري طب الباطنة متخصص في الأمراض المزمنة والوقاية",
+                "qualifications": "دكتوراه في الطب الباطني، زمالة طب الباطنة",
+                "experience_years": "18",
+                "working_hours": {
+                    "sunday": {"from": "8:00", "to": "16:00"},
+                    "monday": {"from": "8:00", "to": "16:00"},
+                    "tuesday": {"from": "8:00", "to": "16:00"},
+                    "wednesday": {"from": "8:00", "to": "16:00"},
+                    "thursday": {"from": "8:00", "to": "16:00"}
+                },
                 "branch_id": branches[1].id if len(branches) > 1 else (branches[0].id if branches else None)
             }
         ]
@@ -420,8 +563,14 @@ async def add_sample_data(
                 id=uuid.uuid4(),
                 name=doctor_data["name"],
                 specialty=doctor_data["specialty"],
+                license_number=doctor_data.get("license_number"),
                 branch_id=doctor_data["branch_id"],
+                phone_number=doctor_data.get("phone_number"),
+                email=doctor_data.get("email"),
                 bio=doctor_data["bio"],
+                qualifications=doctor_data.get("qualifications"),
+                experience_years=doctor_data.get("experience_years"),
+                working_hours=doctor_data.get("working_hours"),
                 is_active=True,
                 created_at=now,
                 updated_at=now
@@ -436,27 +585,37 @@ async def add_sample_data(
         details["doctors"] = [d.name for d in doctors]
         logger.info(f"✅ تم إضافة {len(doctors)} طبيب")
         
-        # 3. إضافة خدمات
+        # 3. إضافة خدمات عيادات عادل كير
         services_data = [
             {
-                "name": "تبييض الأسنان",
-                "base_price": 800.0,
-                "description": "خدمة تبييض الأسنان بالليزر"
-            },
-            {
-                "name": "تقويم الأسنان",
-                "base_price": 5000.0,
-                "description": "تقويم الأسنان التقليدي والشفاف"
-            },
-            {
-                "name": "تنظيف الأسنان",
+                "name": "استشارة طبية عامة",
                 "base_price": 200.0,
-                "description": "تنظيف وتلميع الأسنان"
+                "description": "استشارة طبية شاملة مع طبيب العائلة"
             },
             {
-                "name": "حشو الأسنان",
+                "name": "استشارة طب الأطفال",
+                "base_price": 250.0,
+                "description": "استشارة متخصصة لرعاية الأطفال"
+            },
+            {
+                "name": "فحص دوري شامل",
+                "base_price": 500.0,
+                "description": "فحص طبي شامل يتضمن تحاليل وفحوصات أساسية"
+            },
+            {
+                "name": "متابعة حالة مزمنة",
+                "base_price": 150.0,
+                "description": "متابعة دورية للمرضى الذين يعانون من أمراض مزمنة"
+            },
+            {
+                "name": "فحص طبي للتوظيف",
                 "base_price": 300.0,
-                "description": "حشو الأسنان بالمواد الحديثة"
+                "description": "فحص طبي شامل للتوظيف"
+            },
+            {
+                "name": "تطعيمات",
+                "base_price": 100.0,
+                "description": "تطعيمات للأطفال والكبار"
             }
         ]
         
@@ -530,24 +689,90 @@ async def add_sample_data(
         details["offers"] = [o.title for o in offers]
         logger.info(f"✅ تم إضافة {len(offers)} عرض")
         
-        # 5. إضافة FAQs
+        # 5. إضافة FAQs لعيادات عادل كير
         faqs_data = [
             {
                 "question": "وش ساعات العمل؟",
-                "answer": "ساعات العمل من 9 صباحاً إلى 9 مساءً، من الأحد إلى الخميس",
-                "tags": []
+                "answer": "ساعات العمل من 9 صباحاً إلى 9 مساءً من الأحد إلى الخميس، ومن 2 مساءً إلى 10 مساءً يوم الجمعة. يوم السبت من 9 صباحاً إلى 9 مساءً",
+                "tags": ["ساعات", "عمل", "وقت"]
             },
             {
-                "question": "وين موقع العيادة؟",
-                "answer": "لدينا فروع في الرياض وجدة. يمكنك زيارة أي فرع من الفروع المتاحة",
-                "tags": []
+                "question": "وين موقع عيادات عادل كير؟",
+                "answer": "لدينا فروع في الرياض (حي العليا) وجدة (حي الزهراء). يمكنك زيارة أي فرع من الفروع المتاحة",
+                "tags": ["موقع", "عنوان", "فروع"]
             },
             {
                 "question": "وش هي الخدمات المتاحة؟",
-                "answer": "نقدم خدمات متعددة في طب الأسنان مثل تبييض الأسنان، تقويم الأسنان، تنظيف الأسنان، وحشو الأسنان",
-                "tags": []
+                "answer": "نقدم خدمات متعددة تشمل: استشارات طبية عامة، استشارات طب الأطفال، فحوصات دورية شاملة، متابعة حالات مزمنة، فحوصات التوظيف، والتطعيمات",
+                "tags": ["خدمات", "علاج", "استشارة"]
+            },
+            {
+                "question": "كيف أحجز موعد؟",
+                "answer": "يمكنك الحجز من خلال واتساب، الموقع الإلكتروني، أو الاتصال بنا مباشرة على الأرقام المتاحة",
+                "tags": ["حجز", "موعد", "طريقة"]
+            },
+            {
+                "question": "وش التخصصات المتاحة؟",
+                "answer": "نقدم خدمات في: طب العائلة، طب الأطفال، طب الباطنة، والرعاية الصحية الشاملة",
+                "tags": ["تخصص", "أطباء", "خدمات"]
             }
         ]
+        
+        # 6. إضافة موظفين
+        employees_data = [
+            {
+                "full_name": "سارة أحمد",
+                "position": "receptionist",
+                "phone_number": "0501111111",
+                "email": "sara@adelecare.com",
+                "branch_id": branches[0].id if branches else None,
+                "hire_date": date(2020, 1, 15),
+                "salary": 8000.0
+            },
+            {
+                "full_name": "خالد محمد",
+                "position": "nurse",
+                "phone_number": "0502222222",
+                "email": "khalid@adelecare.com",
+                "branch_id": branches[0].id if branches else None,
+                "hire_date": date(2019, 6, 1),
+                "salary": 12000.0
+            },
+            {
+                "full_name": "نورا علي",
+                "position": "receptionist",
+                "phone_number": "0503333333",
+                "email": "nora@adelecare.com",
+                "branch_id": branches[1].id if len(branches) > 1 else (branches[0].id if branches else None),
+                "hire_date": date(2021, 3, 10),
+                "salary": 8000.0
+            }
+        ]
+        
+        employees = []
+        for employee_data in employees_data:
+            employee = Employee(
+                id=uuid.uuid4(),
+                full_name=employee_data["full_name"],
+                position=employee_data["position"],
+                branch_id=employee_data["branch_id"],
+                phone_number=employee_data.get("phone_number"),
+                email=employee_data.get("email"),
+                hire_date=employee_data.get("hire_date"),
+                salary=employee_data.get("salary"),
+                is_active=True,
+                created_at=now,
+                updated_at=now
+            )
+            db.add(employee)
+            employees.append(employee)
+        
+        db.commit()
+        for employee in employees:
+            db.refresh(employee)
+        counts["employees"] = len(employees)
+        details["employees"] = [e.full_name for e in employees]
+        logger.info(f"✅ تم إضافة {len(employees)} موظف")
         
         faqs = []
         for faq_data in faqs_data:
@@ -569,6 +794,50 @@ async def add_sample_data(
         counts["faqs"] = len(faqs)
         details["faqs"] = [f.question for f in faqs]
         logger.info(f"✅ تم إضافة {len(faqs)} FAQ")
+        
+        # 7. إضافة بيانات تجريبية للمرضى (اختياري - للاختبار)
+        patients_data = [
+            {
+                "full_name": "أحمد محمد العلي",
+                "date_of_birth": date(1990, 5, 15),
+                "gender": "male",
+                "phone_number": "0501234567",
+                "email": "ahmed@example.com",
+                "address": "الرياض، حي النخيل"
+            },
+            {
+                "full_name": "فاطمة سعيد",
+                "date_of_birth": date(1985, 8, 20),
+                "gender": "female",
+                "phone_number": "0507654321",
+                "email": "fatima@example.com",
+                "address": "جدة، حي الزهراء"
+            }
+        ]
+        
+        patients = []
+        for patient_data in patients_data:
+            patient = Patient(
+                id=uuid.uuid4(),
+                full_name=patient_data["full_name"],
+                date_of_birth=patient_data.get("date_of_birth"),
+                gender=patient_data.get("gender"),
+                phone_number=patient_data["phone_number"],
+                email=patient_data.get("email"),
+                address=patient_data.get("address"),
+                is_active=True,
+                created_at=now,
+                updated_at=now
+            )
+            db.add(patient)
+            patients.append(patient)
+        
+        db.commit()
+        for patient in patients:
+            db.refresh(patient)
+        counts["patients"] = len(patients)
+        details["patients"] = [p.full_name for p in patients]
+        logger.info(f"✅ تم إضافة {len(patients)} مريض")
         
         total_added = sum(counts.values())
         logger.info(f"✅ تم إضافة البيانات التجريبية بنجاح - إجمالي: {total_added} سجل")

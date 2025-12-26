@@ -4,12 +4,14 @@ Agent مبسط مع الوعي بالسياق وردود مختلفة حسب ا�
 """
 import logging
 from typing import Optional, List, Dict, Any
+from datetime import datetime, timedelta
+import re
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from app.core.models import ConversationInput, AgentOutput, ConversationMessage, ConversationHistory
 from app.core.llm_client import LLMClient
 from app.core.prompts import build_system_prompt
-from app.db.models import Conversation, Service, Doctor, Branch, Offer
+from app.db.models import Conversation, Service, Doctor, Branch, Offer, Appointment, Patient
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +61,12 @@ class ChatAgent:
                 logger.error(f"❌ خطأ في تحميل تاريخ المحادثة: {str(e)}", exc_info=True)
                 raise
             
-            # 2. جلب معلومات من قاعدة البيانات (فهم ذكي من السياق)
+            # 2. كشف نية حجز موعد
+            appointment_intent = self._detect_appointment_intent(conv_input.message, conversation_history)
+            
+            # 3. جلب معلومات من قاعدة البيانات (فهم ذكي من السياق)
             try:
-                db_context = self._load_db_context(conv_input.message, conversation_history)
+                db_context = self._load_db_context(conv_input.message, conversation_history, appointment_intent)
                 db_context_used = bool(db_context)
                 
                 if db_context:
@@ -77,50 +82,75 @@ class ChatAgent:
                 db_context = ""
                 db_context_used = False
             
-            # 3. بناء System Prompt
-            try:
-                system_prompt = build_system_prompt(
-                    channel=conv_input.channel,
-                    context=db_context
-                )
-                logger.debug(f"✅ System Prompt جاهز ({len(system_prompt)} حرف)")
-            except Exception as e:
-                error_details["system_prompt"] = {
-                    "error_type": type(e).__name__,
-                    "error_message": str(e)
-                }
-                logger.error(f"❌ خطأ في بناء System Prompt: {str(e)}", exc_info=True)
-                raise
+            # 4. معالجة حجز الموعد إذا كان هناك نية للحجز
+            if appointment_intent.get("wants_to_book"):
+                try:
+                    appointment_result = await self._handle_appointment_booking(
+                        conv_input, 
+                        conversation_history, 
+                        db_context,
+                        appointment_intent
+                    )
+                    if appointment_result.get("success"):
+                        # تم حجز الموعد بنجاح
+                        reply_text = appointment_result.get("reply", "تم حجز الموعد بنجاح!")
+                        logger.info("✅ تم حجز الموعد بنجاح")
+                    else:
+                        # فشل الحجز أو يحتاج معلومات إضافية
+                        reply_text = appointment_result.get("reply", "عذراً، لم أتمكن من حجز الموعد. تبي أحوّلك للاستقبال؟")
+                        logger.warning(f"⚠️ لم يتم حجز الموعد: {appointment_result.get('reason')}")
+                except Exception as e:
+                    error_details["appointment_booking"] = {
+                        "error_type": type(e).__name__,
+                        "error_message": str(e)
+                    }
+                    logger.error(f"❌ خطأ في حجز الموعد: {str(e)}", exc_info=True)
+                    reply_text = "عذراً، حدث خطأ في حجز الموعد. تبي أحوّلك للاستقبال يساعدونك؟"
+            else:
+                # 5. بناء System Prompt
+                try:
+                    system_prompt = build_system_prompt(
+                        channel=conv_input.channel,
+                        context=db_context
+                    )
+                    logger.debug(f"✅ System Prompt جاهز ({len(system_prompt)} حرف)")
+                except Exception as e:
+                    error_details["system_prompt"] = {
+                        "error_type": type(e).__name__,
+                        "error_message": str(e)
+                    }
+                    logger.error(f"❌ خطأ في بناء System Prompt: {str(e)}", exc_info=True)
+                    raise
+                
+                # 6. بناء رسائل المحادثة
+                try:
+                    messages = self._build_messages(
+                        system_prompt,
+                        conversation_history,
+                        conv_input.message
+                    )
+                    logger.debug(f"✅ تم بناء {len(messages)} رسالة للمحادثة")
+                except Exception as e:
+                    error_details["build_messages"] = {
+                        "error_type": type(e).__name__,
+                        "error_message": str(e)
+                    }
+                    logger.error(f"❌ خطأ في بناء رسائل المحادثة: {str(e)}", exc_info=True)
+                    raise
+                
+                # 7. توليد الرد باستخدام LLM
+                try:
+                    reply_text = await self.llm_client.chat(messages, max_tokens=500)
+                    logger.info(f"✅ تم توليد الرد بنجاح ({len(reply_text)} حرف)")
+                except Exception as e:
+                    error_details["llm"] = {
+                        "error_type": type(e).__name__,
+                        "error_message": str(e)
+                    }
+                    logger.error(f"❌ خطأ في توليد الرد من LLM: {str(e)}", exc_info=True)
+                    raise
             
-            # 4. بناء رسائل المحادثة
-            try:
-                messages = self._build_messages(
-                    system_prompt,
-                    conversation_history,
-                    conv_input.message
-                )
-                logger.debug(f"✅ تم بناء {len(messages)} رسالة للمحادثة")
-            except Exception as e:
-                error_details["build_messages"] = {
-                    "error_type": type(e).__name__,
-                    "error_message": str(e)
-                }
-                logger.error(f"❌ خطأ في بناء رسائل المحادثة: {str(e)}", exc_info=True)
-                raise
-            
-            # 5. توليد الرد باستخدام LLM
-            try:
-                reply_text = await self.llm_client.chat(messages, max_tokens=500)
-                logger.info(f"✅ تم توليد الرد بنجاح ({len(reply_text)} حرف)")
-            except Exception as e:
-                error_details["llm"] = {
-                    "error_type": type(e).__name__,
-                    "error_message": str(e)
-                }
-                logger.error(f"❌ خطأ في توليد الرد من LLM: {str(e)}", exc_info=True)
-                raise
-            
-            # 6. حفظ المحادثة
+            # 8. حفظ المحادثة
             try:
                 self._save_conversation(conv_input, reply_text, db_context_used)
                 logger.debug("✅ تم حفظ المحادثة بنجاح")
@@ -134,7 +164,7 @@ class ChatAgent:
             
             return AgentOutput(
                 reply_text=reply_text,
-                intent=None,
+                intent="appointment_booking" if appointment_intent.get("wants_to_book") else None,
                 needs_handoff=False,
                 unrecognized=False,
                 db_context_used=db_context_used
@@ -183,7 +213,237 @@ class ChatAgent:
                 db_context_used=False
             )
     
-    def _load_db_context(self, message: str, conversation_history: ConversationHistory) -> str:
+    def _detect_appointment_intent(self, message: str, conversation_history: ConversationHistory) -> Dict[str, Any]:
+        """
+        كشف نية حجز موعد من الرسالة
+        
+        Returns:
+            Dict مع wants_to_book (bool) ومعلومات إضافية
+        """
+        message_lower = message.lower()
+        
+        # كلمات مفتاحية لحجز الموعد
+        booking_keywords = [
+            "احجز", "حجز", "حجزي", "احجزي", "أحجز", "أحجزي",
+            "موعد", "موعدي", "موعدك", "موعدنا",
+            "ابي احجز", "أبي أحجز", "أبي احجز", "ابي أحجز",
+            "عندي موعد", "عندنا موعد", "عندك موعد",
+            "بكرا", "بكرة", "غداً", "بعد بكرا", "بعد غد",
+            "يوم", "تاريخ", "وقت"
+        ]
+        
+        wants_to_book = any(kw in message_lower for kw in booking_keywords)
+        
+        # محاولة استخراج معلومات الحجز
+        extracted_info = {}
+        
+        # استخراج التاريخ/الوقت
+        date_patterns = [
+            r"(\d{1,2})/(\d{1,2})",  # 15/12
+            r"(\d{1,2})-(\d{1,2})",  # 15-12
+            r"يوم (\d{1,2})",  # يوم 15
+            r"بكرا", r"بكرة", r"غداً",
+            r"بعد بكرا", r"بعد غد"
+        ]
+        
+        for pattern in date_patterns:
+            if re.search(pattern, message_lower):
+                extracted_info["has_date"] = True
+                break
+        
+        # استخراج الوقت
+        time_patterns = [
+            r"(\d{1,2}):(\d{2})",  # 10:30
+            r"(\d{1,2}) صباح", r"(\d{1,2}) مساء",
+            r"(\d{1,2}) ص", r"(\d{1,2}) م"
+        ]
+        
+        for pattern in time_patterns:
+            if re.search(pattern, message_lower):
+                extracted_info["has_time"] = True
+                break
+        
+        return {
+            "wants_to_book": wants_to_book,
+            "extracted_info": extracted_info
+        }
+    
+    async def _handle_appointment_booking(
+        self,
+        conv_input: ConversationInput,
+        conversation_history: ConversationHistory,
+        db_context: str,
+        appointment_intent: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        معالجة حجز الموعد
+        
+        Returns:
+            Dict مع success (bool) و reply (str) و appointment_id (optional)
+        """
+        try:
+            message = conv_input.message
+            message_lower = message.lower()
+            
+            # استخراج معلومات الحجز من الرسالة وتاريخ المحادثة
+            # جمع جميع المعلومات من المحادثة
+            full_context = message
+            for msg in conversation_history.messages[-5:]:
+                if msg.role == "user":
+                    full_context += " " + msg.content
+            
+            # استخراج الاسم
+            patient_name = None
+            name_patterns = [
+                r"اسمي (\w+)",
+                r"اسمي (\w+ \w+)",
+                r"أنا (\w+)",
+                r"(\w+) (\w+)",  # اسم عربي مكون من كلمتين
+            ]
+            
+            for pattern in name_patterns:
+                match = re.search(pattern, full_context)
+                if match:
+                    patient_name = match.group(1) if len(match.groups()) == 1 else match.group(0)
+                    break
+            
+            # استخراج رقم الهاتف
+            phone = None
+            phone_patterns = [
+                r"(\d{10})",  # 10 أرقام
+                r"(\d{9})",   # 9 أرقام
+                r"05\d{8}",  # رقم سعودي
+            ]
+            
+            for pattern in phone_patterns:
+                match = re.search(pattern, full_context)
+                if match:
+                    phone = match.group(0)
+                    break
+            
+            # إذا لم نجد رقم هاتف، نستخدم user_id (قد يكون رقم هاتف)
+            if not phone and conv_input.user_id and conv_input.user_id.isdigit():
+                phone = conv_input.user_id
+            
+            # استخراج الخدمة
+            service_id = None
+            services = self.db.query(Service).filter(Service.is_active == True).all()
+            for service in services:
+                if service.name.lower() in message_lower:
+                    service_id = service.id
+                    break
+            
+            # إذا لم نجد خدمة محددة، نستخدم أول خدمة متاحة
+            if not service_id and services:
+                service_id = services[0].id
+            
+            # استخراج الفرع
+            branch_id = None
+            branches = self.db.query(Branch).filter(Branch.is_active == True).all()
+            for branch in branches:
+                if branch.name.lower() in message_lower or branch.city.lower() in message_lower:
+                    branch_id = branch.id
+                    break
+            
+            # إذا لم نجد فرع محدد، نستخدم أول فرع متاح
+            if not branch_id and branches:
+                branch_id = branches[0].id
+            
+            # استخراج الطبيب (اختياري)
+            doctor_id = None
+            doctors = self.db.query(Doctor).filter(Doctor.is_active == True).all()
+            for doctor in doctors:
+                if doctor.name.lower() in message_lower:
+                    doctor_id = doctor.id
+                    break
+            
+            # استخراج التاريخ والوقت
+            appointment_datetime = None
+            
+            # محاولة استخراج التاريخ من الرسالة
+            # إذا لم نجد تاريخ محدد، نستخدم بعد 3 أيام كتاريخ افتراضي
+            appointment_datetime = datetime.now() + timedelta(days=3)
+            appointment_datetime = appointment_datetime.replace(hour=10, minute=0, second=0, microsecond=0)
+            
+            # التحقق من المعلومات المطلوبة
+            missing_info = []
+            if not patient_name:
+                missing_info.append("الاسم")
+            if not phone:
+                missing_info.append("رقم الهاتف")
+            if not service_id:
+                missing_info.append("الخدمة")
+            if not branch_id:
+                missing_info.append("الفرع")
+            
+            if missing_info:
+                # نحتاج معلومات إضافية
+                missing_str = "، ".join(missing_info)
+                reply = f"عشان أحجز لك موعد، أحتاج: {missing_str}. ممكن تعطيني هالمعلومات؟"
+                return {
+                    "success": False,
+                    "reply": reply,
+                    "reason": f"Missing info: {missing_str}",
+                    "missing_info": missing_info
+                }
+            
+            # إنشاء الموعد
+            appointment = Appointment(
+                patient_name=patient_name,
+                phone=phone,
+                branch_id=branch_id,
+                doctor_id=doctor_id,
+                service_id=service_id,
+                datetime=appointment_datetime,
+                channel=conv_input.channel,
+                status="pending",
+                appointment_type="consultation",
+                notes=f"حجز تلقائي من {conv_input.channel}"
+            )
+            
+            self.db.add(appointment)
+            self.db.commit()
+            self.db.refresh(appointment)
+            
+            # جلب معلومات الموعد للرد
+            branch = self.db.query(Branch).filter(Branch.id == branch_id).first()
+            service = self.db.query(Service).filter(Service.id == service_id).first()
+            doctor = self.db.query(Doctor).filter(Doctor.id == doctor_id).first() if doctor_id else None
+            
+            # بناء رد تأكيد
+            reply_parts = [
+                f"✅ تم حجز موعدك بنجاح!",
+                f"📅 التاريخ: {appointment_datetime.strftime('%Y-%m-%d %I:%M %p')}",
+                f"🏥 الفرع: {branch.name if branch else 'غير محدد'}",
+                f"🩺 الخدمة: {service.name if service else 'غير محدد'}"
+            ]
+            
+            if doctor:
+                reply_parts.append(f"👨‍⚕️ الطبيب: {doctor.name}")
+            
+            reply_parts.append(f"📞 سنتواصل معك على {phone} لتأكيد الموعد")
+            reply_parts.append("شكراً لثقتك في عيادات عادل كير! 😊")
+            
+            reply = "\n".join(reply_parts)
+            
+            logger.info(f"✅ تم حجز موعد بنجاح: {appointment.id}")
+            
+            return {
+                "success": True,
+                "reply": reply,
+                "appointment_id": str(appointment.id)
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ خطأ في حجز الموعد: {str(e)}", exc_info=True)
+            self.db.rollback()
+            return {
+                "success": False,
+                "reply": "عذراً، حدث خطأ في حجز الموعد. تبي أحوّلك للاستقبال يساعدونك؟",
+                "reason": str(e)
+            }
+    
+    def _load_db_context(self, message: str, conversation_history: ConversationHistory, appointment_intent: Optional[Dict[str, Any]] = None) -> str:
         """
         جلب معلومات من قاعدة البيانات بناءً على السياق
         
@@ -206,11 +466,11 @@ class ChatAgent:
             # تحديد البيانات المطلوبة بشكل ذكي
             need_doctors = any(kw in context_text for kw in [
                 "دكتور", "طبيب", "الاطباء", "اطباء", "الأطباء", "عندكم أطباء", 
-                "هل عندكم أطباء", "عندكم دكتور", "هل عندكم دكتور", "أطباء"
+                "هل عندكم أطباء", "عندكم دكتور", "هل عندكم دكتور", "أطباء", "تخصص"
             ])
             need_services = any(kw in context_text for kw in [
-                "خدم", "خدمات", "تبييض", "تقويم", "تنظيف", "حشوه", "علاج",
-                "عندكم خدمات", "وش الخدمات", "أي خدمات", "بكم", "كم يكلف", "سعر"
+                "خدم", "خدمات", "استشارة", "فحص", "علاج", "تطعيم",
+                "عندكم خدمات", "وش الخدمات", "أي خدمات", "بكم", "كم يكلف", "سعر", "تكلفة"
             ])
             need_branches = any(kw in context_text for kw in [
                 "فرع", "فروع", "عنوان", "موقع", "وينكم", "وين", "عنوانكم",
@@ -221,8 +481,13 @@ class ChatAgent:
                 "عرض", "عروض", "خصم", "عندكم عروض", "هل عندكم عروض"
             ])
             
+            # إذا كان هناك نية لحجز موعد، نجلب جميع المعلومات المطلوبة
+            if appointment_intent and appointment_intent.get("wants_to_book"):
+                need_doctors = True
+                need_services = True
+                need_branches = True
             # إذا لم يكن هناك إشارة واضحة، نجلب البيانات الأساسية (أطباء وخدمات وفروع)
-            if not (need_doctors or need_services or need_branches or need_offers):
+            elif not (need_doctors or need_services or need_branches or need_offers):
                 need_doctors = True
                 need_services = True
                 need_branches = True

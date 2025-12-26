@@ -12,6 +12,10 @@ from .faq import FAQ
 from .appointment import Appointment
 from .unanswered_question import UnansweredQuestion
 from .pending_handoff import PendingHandoff
+from .patient import Patient
+from .treatment import Treatment
+from .invoice import Invoice
+from .employee import Employee
 
 __all__ = [
     "Conversation",
@@ -25,6 +29,10 @@ __all__ = [
     "Appointment",
     "UnansweredQuestion",
     "PendingHandoff",
+    "Patient",
+    "Treatment",
+    "Invoice",
+    "Employee",
 ]
 
 
