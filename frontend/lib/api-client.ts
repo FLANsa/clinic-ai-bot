@@ -262,3 +262,28 @@ export async function sendWhatsAppTestMessage(phoneNumber: string, message: stri
   })
 }
 
+// Diagnostic functions
+export interface DiagnosticResult {
+  component: string
+  status: 'ok' | 'error' | 'warning'
+  message: string
+  details?: Record<string, any>
+  error_type?: string
+  error_message?: string
+}
+
+export interface DiagnosticResponse {
+  overall_status: 'healthy' | 'degraded' | 'unhealthy'
+  results: DiagnosticResult[]
+  recommendations: string[]
+}
+
+export async function diagnoseBotIssues(testMessage: string = 'مرحبا'): Promise<DiagnosticResponse> {
+  return fetchAPI('/test/health/diagnose', {
+    method: 'POST',
+    body: JSON.stringify({
+      test_message: testMessage,
+    }),
+  })
+}
+

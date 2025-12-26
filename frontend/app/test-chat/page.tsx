@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from 'react'
-import { testChat, cleanDatabase, initDatabase, addSampleData, testWhatsAppConnection, sendWhatsAppTestMessage } from '../../lib/api-client'
+import { testChat, cleanDatabase, initDatabase, addSampleData, testWhatsAppConnection, sendWhatsAppTestMessage, diagnoseBotIssues, DiagnosticResponse } from '../../lib/api-client'
 
 interface Message {
   id: string
@@ -30,6 +30,9 @@ export default function TestChatPage() {
   const [testPhoneNumber, setTestPhoneNumber] = useState('')
   const [testMessage, setTestMessage] = useState('رسالة تجريبية من عيادة - هذا اختبار للتحقق من ربط WhatsApp API')
   const [sendingTestMessage, setSendingTestMessage] = useState(false)
+  const [diagnosing, setDiagnosing] = useState(false)
+  const [diagnosticResult, setDiagnosticResult] = useState<DiagnosticResponse | null>(null)
+  const [showDiagnostic, setShowDiagnostic] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   // استخدام user_id ثابت لكل جلسة الاختبار (لكل قناة منفصلة)
   const userIdRef = useRef<Record<string, string>>({})
@@ -224,6 +227,31 @@ export default function TestChatPage() {
       setSendingTestMessage(false)
     }
   }
+
+  const handleDiagnose = async () => {
+    setDiagnosing(true)
+    setDiagnosticResult(null)
+    setShowDiagnostic(true)
+    setError(null)
+
+    try {
+      const result = await diagnoseBotIssues('مرحبا')
+      setDiagnosticResult(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'حدث خطأ أثناء التشخيص')
+      setDiagnosticResult({
+        overall_status: 'unhealthy',
+        results: [{
+          component: 'diagnostic_error',
+          status: 'error',
+          message: err instanceof Error ? err.message : 'حدث خطأ غير متوقع'
+        }],
+        recommendations: ['تحقق من اتصال الخادم']
+      })
+    } finally {
+      setDiagnosing(false)
+    }
+  }
   
   // تحديث الرسائل عند تغيير القناة (لكل قناة محادثة منفصلة)
   useEffect(() => {
@@ -341,6 +369,28 @@ export default function TestChatPage() {
                   </>
                 )}
               </button>
+              <button
+                onClick={handleDiagnose}
+                disabled={diagnosing}
+                className="bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors duration-200"
+              >
+                {diagnosing ? (
+                  <>
+                    <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    جاري التشخيص...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                    </svg>
+                    🔍 تشخيص المشاكل
+                  </>
+                )}
+              </button>
             </div>
           </div>
           
@@ -428,6 +478,113 @@ export default function TestChatPage() {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Diagnostic Results */}
+          {showDiagnostic && diagnosticResult && (
+            <div className={`mt-5 p-4 rounded-lg border-2 ${
+              diagnosticResult.overall_status === 'healthy'
+                ? 'bg-green-50 border-green-200'
+                : diagnosticResult.overall_status === 'degraded'
+                ? 'bg-yellow-50 border-yellow-200'
+                : 'bg-red-50 border-red-200'
+            }`}>
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className={`text-2xl ${
+                    diagnosticResult.overall_status === 'healthy' ? 'text-green-600' :
+                    diagnosticResult.overall_status === 'degraded' ? 'text-yellow-600' :
+                    'text-red-600'
+                  }`}>
+                    {diagnosticResult.overall_status === 'healthy' ? '✅' :
+                     diagnosticResult.overall_status === 'degraded' ? '⚠️' :
+                     '❌'}
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900">
+                      نتائج التشخيص: {
+                        diagnosticResult.overall_status === 'healthy' ? 'كل شيء يعمل بشكل صحيح' :
+                        diagnosticResult.overall_status === 'degraded' ? 'بعض الأنظمة تحتاج انتباه' :
+                        'هناك مشاكل خطيرة'
+                      }
+                    </h3>
+                    <p className="text-sm text-gray-600">
+                      تم فحص {diagnosticResult.results.length} مكون
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowDiagnostic(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="space-y-3 mt-4">
+                {diagnosticResult.results.map((result, index) => (
+                  <div
+                    key={index}
+                    className={`p-3 rounded-lg border ${
+                      result.status === 'ok' ? 'bg-white border-green-200' :
+                      result.status === 'warning' ? 'bg-yellow-50 border-yellow-200' :
+                      'bg-red-50 border-red-200'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <span className={`text-lg ${
+                        result.status === 'ok' ? 'text-green-600' :
+                        result.status === 'warning' ? 'text-yellow-600' :
+                        'text-red-600'
+                      }`}>
+                        {result.status === 'ok' ? '✅' :
+                         result.status === 'warning' ? '⚠️' :
+                         '❌'}
+                      </span>
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-gray-900 mb-1">
+                          {result.component === 'database_data' ? 'قاعدة البيانات' :
+                           result.component === 'db_context_loading' ? 'جلب السياق من قاعدة البيانات' :
+                           result.component === 'llm_connection' ? 'اتصال LLM' :
+                           result.component === 'message_handling' ? 'معالجة الرسائل' :
+                           result.component}
+                        </h4>
+                        <p className="text-sm text-gray-700 mb-2">{result.message}</p>
+                        {result.error_type && (
+                          <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs">
+                            <strong>نوع الخطأ:</strong> {result.error_type}<br/>
+                            <strong>الرسالة:</strong> {result.error_message}
+                          </div>
+                        )}
+                        {result.details && Object.keys(result.details).length > 0 && (
+                          <div className="mt-2 text-xs text-gray-600">
+                            <strong>التفاصيل:</strong>
+                            <ul className="list-disc list-inside ml-2 mt-1">
+                              {Object.entries(result.details).map(([key, value]) => (
+                                <li key={key}>{key}: {String(value)}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {diagnosticResult.recommendations && diagnosticResult.recommendations.length > 0 && (
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <h4 className="font-semibold text-blue-900 mb-2">💡 التوصيات:</h4>
+                  <ul className="list-disc list-inside space-y-1 text-sm text-blue-800">
+                    {diagnosticResult.recommendations.map((rec, index) => (
+                      <li key={index}>{rec}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 

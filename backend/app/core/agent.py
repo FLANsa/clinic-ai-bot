@@ -42,42 +42,95 @@ class ChatAgent:
         Returns:
             إخراج الوكيل (الرد والنتائج)
         """
+        error_details = {}
         try:
             # 1. تحميل تاريخ المحادثة (Context Awareness)
-            conversation_history = await self._load_conversation_history(
-                conv_input.user_id, 
-                conv_input.channel
-            )
+            try:
+                conversation_history = await self._load_conversation_history(
+                    conv_input.user_id, 
+                    conv_input.channel
+                )
+                logger.debug("✅ تم تحميل تاريخ المحادثة بنجاح")
+            except Exception as e:
+                error_details["conversation_history"] = {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+                logger.error(f"❌ خطأ في تحميل تاريخ المحادثة: {str(e)}", exc_info=True)
+                raise
             
             # 2. جلب معلومات من قاعدة البيانات (فهم ذكي من السياق)
-            db_context = self._load_db_context(conv_input.message, conversation_history)
-            db_context_used = bool(db_context)
+            try:
+                db_context = self._load_db_context(conv_input.message, conversation_history)
+                db_context_used = bool(db_context)
+                
+                if db_context:
+                    logger.info(f"✅ تم جلب سياق من قاعدة البيانات ({len(db_context)} حرف)")
+                else:
+                    logger.warning("⚠️ لم يتم جلب أي سياق من قاعدة البيانات - قد تكون قاعدة البيانات فارغة")
+            except Exception as e:
+                error_details["db_context"] = {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+                logger.error(f"❌ خطأ في جلب سياق قاعدة البيانات: {str(e)}", exc_info=True)
+                db_context = ""
+                db_context_used = False
             
-            if db_context:
-                logger.info(f"تم جلب سياق من قاعدة البيانات ({len(db_context)} حرف)")
-            else:
-                logger.warning("لم يتم جلب أي سياق من قاعدة البيانات - قد تكون قاعدة البيانات فارغة")
+            # 3. بناء System Prompt
+            try:
+                system_prompt = build_system_prompt(
+                    channel=conv_input.channel,
+                    context=db_context
+                )
+                logger.debug(f"✅ System Prompt جاهز ({len(system_prompt)} حرف)")
+            except Exception as e:
+                error_details["system_prompt"] = {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+                logger.error(f"❌ خطأ في بناء System Prompt: {str(e)}", exc_info=True)
+                raise
             
-            # 4. بناء System Prompt
-            system_prompt = build_system_prompt(
-                channel=conv_input.channel,
-                context=db_context
-            )
+            # 4. بناء رسائل المحادثة
+            try:
+                messages = self._build_messages(
+                    system_prompt,
+                    conversation_history,
+                    conv_input.message
+                )
+                logger.debug(f"✅ تم بناء {len(messages)} رسالة للمحادثة")
+            except Exception as e:
+                error_details["build_messages"] = {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+                logger.error(f"❌ خطأ في بناء رسائل المحادثة: {str(e)}", exc_info=True)
+                raise
             
-            logger.debug(f"System Prompt يحتوي على {len(system_prompt)} حرف")
+            # 5. توليد الرد باستخدام LLM
+            try:
+                reply_text = await self.llm_client.chat(messages, max_tokens=500)
+                logger.info(f"✅ تم توليد الرد بنجاح ({len(reply_text)} حرف)")
+            except Exception as e:
+                error_details["llm"] = {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+                logger.error(f"❌ خطأ في توليد الرد من LLM: {str(e)}", exc_info=True)
+                raise
             
-            # 5. بناء رسائل المحادثة
-            messages = self._build_messages(
-                system_prompt,
-                conversation_history,
-                conv_input.message
-            )
-            
-            # 6. توليد الرد باستخدام LLM
-            reply_text = await self.llm_client.chat(messages, max_tokens=500)
-            
-            # 7. حفظ المحادثة
-            self._save_conversation(conv_input, reply_text, db_context_used)
+            # 6. حفظ المحادثة
+            try:
+                self._save_conversation(conv_input, reply_text, db_context_used)
+                logger.debug("✅ تم حفظ المحادثة بنجاح")
+            except Exception as e:
+                error_details["save_conversation"] = {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+                logger.error(f"⚠️ خطأ في حفظ المحادثة (غير حرج): {str(e)}", exc_info=True)
+                # لا نرفع الخطأ هنا لأن المحادثة تمت بنجاح
             
             return AgentOutput(
                 reply_text=reply_text,
@@ -88,13 +141,40 @@ class ChatAgent:
             )
             
         except Exception as e:
-            logger.error(f"خطأ في معالجة الرسالة: {str(e)}", exc_info=True)
-            # رد fallback
-            fallback_reply = "عذراً، حدث خطأ. تبي أحوّلك للاستقبال يساعدونك؟"
+            error_type = type(e).__name__
+            error_message = str(e)
+            
+            # تسجيل تفاصيل الخطأ الكاملة
+            logger.error(
+                f"❌ خطأ في معالجة الرسالة:\n"
+                f"   النوع: {error_type}\n"
+                f"   الرسالة: {error_message}\n"
+                f"   تفاصيل إضافية: {error_details}\n"
+                f"   المستخدم: {conv_input.user_id}\n"
+                f"   القناة: {conv_input.channel}\n"
+                f"   الرسالة: {conv_input.message[:100]}",
+                exc_info=True
+            )
+            
+            # رد fallback مع معلومات الخطأ (في بيئة التطوير)
+            import os
+            is_dev = os.getenv("ENVIRONMENT", "production") == "development"
+            
+            if is_dev and error_details:
+                fallback_reply = (
+                    f"عذراً، حدث خطأ ({error_type}). "
+                    f"الخطأ: {error_message[:100]}. "
+                    f"تفاصيل: {list(error_details.keys())}. "
+                    f"تيب أحوّلك للاستقبال يساعدونك؟"
+                )
+            else:
+                fallback_reply = "عذراً، حدث خطأ. تبي أحوّلك للاستقبال يساعدونك؟"
+            
             try:
                 self._save_conversation(conv_input, fallback_reply, False)
-            except:
-                pass
+            except Exception as save_error:
+                logger.error(f"❌ فشل حفظ المحادثة بعد الخطأ: {str(save_error)}")
+            
             return AgentOutput(
                 reply_text=fallback_reply,
                 intent=None,
