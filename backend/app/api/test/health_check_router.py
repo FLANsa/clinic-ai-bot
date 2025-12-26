@@ -248,7 +248,7 @@ async def diagnose_bot_issues(
     # 2. اختبار DB Context Loading
     try:
         from app.core.agent import ChatAgent
-        from app.core.models import ConversationHistory, Message
+        from app.core.models import ConversationHistory, ConversationMessage
         
         agent = ChatAgent(
             llm_client=LLMClient(),
@@ -258,7 +258,7 @@ async def diagnose_bot_issues(
         # إنشاء conversation history تجريبي
         test_history = ConversationHistory(
             messages=[
-                Message(role="user", content=request.test_message)
+                ConversationMessage(role="user", content=request.test_message)
             ]
         )
         
@@ -320,15 +320,23 @@ async def diagnose_bot_issues(
                     details={"response_preview": response[:100]}
                 ))
             except Exception as llm_error:
+                error_str = str(llm_error)
+                is_invalid_key = "Invalid API Key" in error_str or "invalid_api_key" in error_str or "401" in error_str
+                
                 results.append(DiagnosticResult(
                     component="llm_connection",
                     status="error",
-                    message=f"فشل الاتصال بـ LLM: {str(llm_error)[:100]}",
+                    message=f"فشل الاتصال بـ LLM: {error_str[:100]}",
                     error_type=type(llm_error).__name__,
-                    error_message=str(llm_error)[:200],
+                    error_message=error_str[:200],
                     details={}
                 ))
-                recommendations.append("تحقق من صحة GROQ_API_KEY واتصالك بالإنترنت")
+                
+                if is_invalid_key:
+                    recommendations.append("⚠️ GROQ_API_KEY غير صحيح أو منتهي الصلاحية - احصل على مفتاح جديد من https://console.groq.com/")
+                    recommendations.append("في Render Dashboard: Environment > أضف/حدث GROQ_API_KEY")
+                else:
+                    recommendations.append("تحقق من صحة GROQ_API_KEY واتصالك بالإنترنت")
                 
     except Exception as e:
         results.append(DiagnosticResult(
