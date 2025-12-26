@@ -239,6 +239,12 @@ export async function cleanDatabase() {
   }, true)
 }
 
+export async function dropAllTables() {
+  return fetchAPI('/admin/db/drop-all-tables', {
+    method: 'POST',
+  }, true)
+}
+
 export async function addSampleData() {
   return fetchAPI('/admin/db/add-sample-data', {
     method: 'POST',

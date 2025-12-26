@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine, text, inspect as sqlalchemy_inspect
 from pydantic import BaseModel
-from typing import Dict, Any
+from typing import Dict, Any, List
 from app.db.session import get_db
 from app.middleware.auth import verify_api_key
 from app.config import get_settings
@@ -31,6 +31,13 @@ class CleanDBResponse(BaseModel):
     success: bool
     message: str
     deleted_counts: Dict[str, int] = {}
+
+
+class DropTablesResponse(BaseModel):
+    """رد حذف جميع الجداول"""
+    success: bool
+    message: str
+    dropped_tables: List[str] = []
 
 
 class AddSampleDataResponse(BaseModel):
@@ -398,8 +405,9 @@ async def clean_database(
     """
     تنظيف قاعدة البيانات: حذف جميع البيانات من جميع الجداول
     ⚠️ تحذير: هذه العملية لا يمكن التراجع عنها!
+    سيتم حذف كل شيء تماماً من قاعدة البيانات!
     """
-    logger.warning("⚠️  بدء تنظيف قاعدة البيانات - سيتم حذف جميع البيانات!")
+    logger.warning("⚠️  بدء تنظيف قاعدة البيانات - سيتم حذف جميع البيانات تماماً!")
     
     try:
         from app.db.models import (
@@ -408,109 +416,107 @@ async def clean_database(
             Appointment, UnansweredQuestion, PendingHandoff,
             Patient, Treatment, Invoice, Employee
         )
+        from sqlalchemy import text
         
         deleted_counts = {}
         
-        # ترتيب الحذف بناءً على العلاقات (Foreign Keys)
-        # حذف البيانات التي تعتمد على جداول أخرى أولاً
+        # استخدام TRUNCATE CASCADE لحذف جميع البيانات بشكل كامل وأسرع
+        # TRUNCATE يحذف جميع البيانات ويعيد reset للـ sequences
         
-        # 1. حذف DocumentChunks (يعتمد على DocumentSource)
-        doc_chunk_count = db.query(DocumentChunk).delete()
-        db.commit()
-        deleted_counts["document_chunks"] = doc_chunk_count
-        logger.info(f"✅ تم حذف {doc_chunk_count} document chunk")
+        logger.info("🗑️  بدء حذف جميع البيانات باستخدام TRUNCATE CASCADE...")
         
-        # 2. حذف DocumentSource
-        doc_source_count = db.query(DocumentSource).delete()
+        # تعطيل Foreign Key Constraints مؤقتاً
+        db.execute(text("SET session_replication_role = 'replica'"))
         db.commit()
-        deleted_counts["document_sources"] = doc_source_count
-        logger.info(f"✅ تم حذف {doc_source_count} document source")
         
-        # 3. حذف UnansweredQuestion (يعتمد على Conversation)
-        unanswered_count = db.query(UnansweredQuestion).delete()
-        db.commit()
-        deleted_counts["unanswered_questions"] = unanswered_count
-        logger.info(f"✅ تم حذف {unanswered_count} unanswered question")
+        # قائمة بجميع الجداول بالترتيب الصحيح
+        tables_to_truncate = [
+            ("treatments", "العلاجات"),
+            ("invoices", "الفواتير"),
+            ("appointments", "المواعيد"),
+            ("document_chunks", "Document Chunks"),
+            ("document_sources", "Document Sources"),
+            ("unanswered_questions", "Unanswered Questions"),
+            ("pending_handoffs", "Pending Handoffs"),
+            ("conversations", "المحادثات"),
+            ("offers", "العروض"),
+            ("doctors", "الأطباء"),
+            ("services", "الخدمات"),
+            ("branches", "الفروع"),
+            ("patients", "المرضى"),
+            ("employees", "الموظفين"),
+            ("faqs", "الأسئلة الشائعة"),
+        ]
         
-        # 4. حذف PendingHandoff (يعتمد على Conversation)
-        handoff_count = db.query(PendingHandoff).delete()
-        db.commit()
-        deleted_counts["pending_handoffs"] = handoff_count
-        logger.info(f"✅ تم حذف {handoff_count} pending handoff")
+        # حذف جميع الجداول
+        for table_name, table_label in tables_to_truncate:
+            try:
+                # استخدام TRUNCATE CASCADE لحذف جميع البيانات
+                result = db.execute(text(f"TRUNCATE TABLE {table_name} CASCADE"))
+                db.commit()
+                
+                # جلب عدد السجلات قبل الحذف (للعرض)
+                count_result = db.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
+                count = count_result.scalar()
+                
+                deleted_counts[table_name] = count
+                logger.info(f"✅ تم حذف جميع البيانات من جدول {table_label} ({table_name})")
+            except Exception as e:
+                # إذا فشل TRUNCATE، جرب DELETE
+                try:
+                    logger.warning(f"⚠️  TRUNCATE فشل لـ {table_name}، جاري استخدام DELETE...")
+                    if table_name == "treatments":
+                        count = db.query(Treatment).delete()
+                    elif table_name == "invoices":
+                        count = db.query(Invoice).delete()
+                    elif table_name == "appointments":
+                        count = db.query(Appointment).delete()
+                    elif table_name == "document_chunks":
+                        count = db.query(DocumentChunk).delete()
+                    elif table_name == "document_sources":
+                        count = db.query(DocumentSource).delete()
+                    elif table_name == "unanswered_questions":
+                        count = db.query(UnansweredQuestion).delete()
+                    elif table_name == "pending_handoffs":
+                        count = db.query(PendingHandoff).delete()
+                    elif table_name == "conversations":
+                        count = db.query(Conversation).delete()
+                    elif table_name == "offers":
+                        count = db.query(Offer).delete()
+                    elif table_name == "doctors":
+                        count = db.query(Doctor).delete()
+                    elif table_name == "services":
+                        count = db.query(Service).delete()
+                    elif table_name == "branches":
+                        count = db.query(Branch).delete()
+                    elif table_name == "patients":
+                        count = db.query(Patient).delete()
+                    elif table_name == "employees":
+                        count = db.query(Employee).delete()
+                    elif table_name == "faqs":
+                        count = db.query(FAQ).delete()
+                    else:
+                        count = 0
+                    
+                    db.commit()
+                    deleted_counts[table_name] = count
+                    logger.info(f"✅ تم حذف {count} سجل من جدول {table_label} ({table_name})")
+                except Exception as delete_error:
+                    logger.error(f"❌ فشل حذف {table_name}: {str(delete_error)}")
+                    deleted_counts[table_name] = 0
         
-        # 5. حذف Conversations (بعد حذف الجداول التي تعتمد عليه)
-        conv_count = db.query(Conversation).delete()
+        # إعادة تفعيل Foreign Key Constraints
+        db.execute(text("SET session_replication_role = 'origin'"))
         db.commit()
-        deleted_counts["conversations"] = conv_count
-        logger.info(f"✅ تم حذف {conv_count} محادثة")
-        
-        # 6. حذف Appointments (يعتمد على Branch, Doctor, Service)
-        appt_count = db.query(Appointment).delete()
-        db.commit()
-        deleted_counts["appointments"] = appt_count
-        logger.info(f"✅ تم حذف {appt_count} موعد")
-        
-        # 7. حذف Offers (يعتمد على Service) - يجب حذفه قبل Service!
-        offer_count = db.query(Offer).delete()
-        db.commit()
-        deleted_counts["offers"] = offer_count
-        logger.info(f"✅ تم حذف {offer_count} عرض")
-        
-        # 8. حذف Doctors (قد يعتمد على Branch، لكن branch_id nullable)
-        doctor_count = db.query(Doctor).delete()
-        db.commit()
-        deleted_counts["doctors"] = doctor_count
-        logger.info(f"✅ تم حذف {doctor_count} طبيب")
-        
-        # 9. حذف Services (بعد حذف Offers و Appointments التي تعتمد عليه)
-        service_count = db.query(Service).delete()
-        db.commit()
-        deleted_counts["services"] = service_count
-        logger.info(f"✅ تم حذف {service_count} خدمة")
-        
-        # 10. حذف Branches (بعد حذف Doctors و Appointments التي تعتمد عليه)
-        branch_count = db.query(Branch).delete()
-        db.commit()
-        deleted_counts["branches"] = branch_count
-        logger.info(f"✅ تم حذف {branch_count} فرع")
-        
-        # 11. حذف Treatments (يعتمد على Patient, Appointment, Doctor)
-        treatment_count = db.query(Treatment).delete()
-        db.commit()
-        deleted_counts["treatments"] = treatment_count
-        logger.info(f"✅ تم حذف {treatment_count} علاج")
-        
-        # 12. حذف Invoices (يعتمد على Patient, Appointment)
-        invoice_count = db.query(Invoice).delete()
-        db.commit()
-        deleted_counts["invoices"] = invoice_count
-        logger.info(f"✅ تم حذف {invoice_count} فاتورة")
-        
-        # 13. حذف Patients (بعد حذف Treatments و Invoices و Appointments)
-        patient_count = db.query(Patient).delete()
-        db.commit()
-        deleted_counts["patients"] = patient_count
-        logger.info(f"✅ تم حذف {patient_count} مريض")
-        
-        # 14. حذف Employees (يعتمد على Branch)
-        employee_count = db.query(Employee).delete()
-        db.commit()
-        deleted_counts["employees"] = employee_count
-        logger.info(f"✅ تم حذف {employee_count} موظف")
-        
-        # 15. حذف FAQs (لا يعتمد على أي شيء)
-        faq_count = db.query(FAQ).delete()
-        db.commit()
-        deleted_counts["faqs"] = faq_count
-        logger.info(f"✅ تم حذف {faq_count} FAQ")
         
         total_deleted = sum(deleted_counts.values())
         
         logger.info(f"✅ تم تنظيف قاعدة البيانات بنجاح - إجمالي السجلات المحذوفة: {total_deleted}")
+        logger.info(f"📊 الجداول المحذوفة: {', '.join(deleted_counts.keys())}")
         
         return CleanDBResponse(
             success=True,
-            message=f"تم تنظيف قاعدة البيانات بنجاح - تم حذف {total_deleted} سجل",
+            message=f"✅ تم حذف جميع البيانات من قاعدة البيانات تماماً!\n\nإجمالي السجلات المحذوفة: {total_deleted}",
             deleted_counts=deleted_counts
         )
         
@@ -521,6 +527,73 @@ async def clean_database(
         raise HTTPException(
             status_code=500,
             detail=f"فشل تنظيف قاعدة البيانات: {error_msg[:200]}"
+        )
+
+
+@router.post("/drop-all-tables", response_model=DropTablesResponse)
+async def drop_all_tables(
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    حذف جميع الجداول من قاعدة البيانات (DROP TABLE)
+    ⚠️⚠️⚠️ تحذير خطير: هذه العملية تحذف الجداول نفسها وليس فقط البيانات!
+    ⚠️⚠️⚠️ لا يمكن التراجع عن هذه العملية!
+    بعد الحذف، يجب تشغيل /admin/db/init لإعادة إنشاء الجداول
+    """
+    logger.critical("🚨🚨🚨 بدء حذف جميع الجداول من قاعدة البيانات - عملية خطيرة جداً!")
+    
+    try:
+        from sqlalchemy import text, inspect as sqlalchemy_inspect
+        
+        # إنشاء محرك قاعدة البيانات
+        engine = create_engine(settings.DATABASE_URL, isolation_level="AUTOCOMMIT")
+        inspector = sqlalchemy_inspect(engine)
+        
+        # جلب جميع أسماء الجداول
+        all_tables = inspector.get_table_names()
+        
+        if not all_tables:
+            return DropTablesResponse(
+                success=True,
+                message="لا توجد جداول في قاعدة البيانات",
+                dropped_tables=[]
+            )
+        
+        dropped_tables = []
+        
+        # حذف جميع الجداول
+        with engine.connect() as conn:
+            # تعطيل Foreign Key Constraints مؤقتاً
+            conn.execute(text("SET session_replication_role = 'replica'"))
+            
+            # حذف جميع الجداول
+            for table_name in all_tables:
+                try:
+                    # استخدام DROP TABLE CASCADE لحذف الجدول والعلاقات
+                    conn.execute(text(f"DROP TABLE IF EXISTS {table_name} CASCADE"))
+                    dropped_tables.append(table_name)
+                    logger.warning(f"🗑️  تم حذف جدول: {table_name}")
+                except Exception as e:
+                    logger.error(f"❌ فشل حذف جدول {table_name}: {str(e)}")
+            
+            # إعادة تفعيل Foreign Key Constraints
+            conn.execute(text("SET session_replication_role = 'origin'"))
+        
+        logger.critical(f"🚨 تم حذف {len(dropped_tables)} جدول من قاعدة البيانات!")
+        
+        return DropTablesResponse(
+            success=True,
+            message=f"✅ تم حذف جميع الجداول من قاعدة البيانات!\n\nتم حذف {len(dropped_tables)} جدول",
+            dropped_tables=dropped_tables
+        )
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"❌ فشل حذف الجداول: {error_msg}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"فشل حذف الجداول: {error_msg[:200]}"
         )
 
 
