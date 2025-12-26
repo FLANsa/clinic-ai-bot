@@ -233,4 +233,58 @@ export async function initDatabase() {
   }, true)
 }
 
+export async function cleanDatabase() {
+  return fetchAPI('/admin/db/clean', {
+    method: 'POST',
+  }, true)
+}
+
+export async function addSampleData() {
+  return fetchAPI('/admin/db/add-sample-data', {
+    method: 'POST',
+  }, true)
+}
+
+// WhatsApp Test
+export async function testWhatsAppConnection() {
+  return fetchAPI('/test/whatsapp/test-connection', {
+    method: 'POST',
+  })
+}
+
+export async function sendWhatsAppTestMessage(phoneNumber: string, message: string) {
+  return fetchAPI('/test/whatsapp/send-test-message', {
+    method: 'POST',
+    body: JSON.stringify({
+      phone_number: phoneNumber,
+      message: message,
+    }),
+  })
+}
+
+// Diagnostic functions
+export interface DiagnosticResult {
+  component: string
+  status: 'ok' | 'error' | 'warning'
+  message: string
+  details?: Record<string, any>
+  error_type?: string
+  error_message?: string
+}
+
+export interface DiagnosticResponse {
+  overall_status: 'healthy' | 'degraded' | 'unhealthy'
+  results: DiagnosticResult[]
+  recommendations: string[]
+}
+
+export async function diagnoseBotIssues(testMessage: string = 'مرحبا'): Promise<DiagnosticResponse> {
+  return fetchAPI('/test/health/diagnose', {
+    method: 'POST',
+    body: JSON.stringify({
+      test_message: testMessage,
+    }),
+  })
+}
+
 
