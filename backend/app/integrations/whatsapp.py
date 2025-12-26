@@ -47,27 +47,45 @@ def parse_incoming(payload: Dict[str, Any]) -> Optional[Dict[str, str]]:
         Dict with user_id, message, and locale, or None if not a text message
     """
     try:
+        logger.debug(f"Parsing WhatsApp payload: {payload}")
+        
         # WhatsApp webhook format
         entry = payload.get("entry", [])
         if not entry:
+            logger.debug("No entry in payload")
             return None
         
         changes = entry[0].get("changes", [])
         if not changes:
+            logger.debug("No changes in entry")
             return None
         
         value = changes[0].get("value", {})
         messages = value.get("messages", [])
         
-        if not messages or messages[0].get("type") != "text":
+        if not messages:
+            logger.debug("No messages in value")
             return None
         
         message_obj = messages[0]
+        message_type = message_obj.get("type")
+        
+        if message_type != "text":
+            logger.debug(f"Message type is not text: {message_type}")
+            return None
+        
         from_number = message_obj.get("from")
         message_text = message_obj.get("text", {}).get("body", "")
         
-        if not from_number or not message_text:
+        if not from_number:
+            logger.warning("No 'from' field in message")
             return None
+        
+        if not message_text:
+            logger.warning("No message text in message")
+            return None
+        
+        logger.info(f"✅ Successfully parsed message from {from_number}: {message_text[:50]}")
         
         return {
             "user_id": from_number,

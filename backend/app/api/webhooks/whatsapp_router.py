@@ -47,13 +47,16 @@ async def handle_webhook(
     """Handle incoming WhatsApp messages (POST)"""
     try:
         payload_data = await request.json()
+        logger.info(f"📨 Received WhatsApp webhook payload")
         
         # التحقق من صحة payload باستخدام Pydantic
         try:
             from app.api.webhooks.schemas import WhatsAppWebhookPayload
             validated_payload = WhatsAppWebhookPayload(**payload_data)
+            logger.info("✅ Payload validation successful")
         except Exception as validation_error:
-            logger.warning(f"Invalid webhook payload: {str(validation_error)}")
+            logger.warning(f"❌ Invalid webhook payload: {str(validation_error)}")
+            logger.debug(f"Payload data: {payload_data}")
             return {"status": "error", "message": "Invalid webhook payload format"}
         
         # تحليل الرسالة الواردة
@@ -61,7 +64,10 @@ async def handle_webhook(
         
         if not parsed_data:
             # ليست رسالة نصية أو لا يمكن تحليلها
+            logger.info("⚠️ Message ignored - not a text message or cannot be parsed")
             return {"status": "ignored"}
+        
+        logger.info(f"✅ Parsed message: user_id={parsed_data['user_id']}, message={parsed_data['message'][:50]}")
         
         # إنشاء ConversationInput
         from app.core.models import ConversationInput
@@ -73,13 +79,24 @@ async def handle_webhook(
         )
         
         # معالجة الرسالة بواسطة الوكيل
+        logger.info("🤖 Processing message with agent...")
         agent_output = await agent.handle_message(conv_input)
+        logger.info(f"✅ Agent response generated: {agent_output.reply_text[:50]}")
         
         # إرسال الرد
-        await whatsapp_integration.send_message(
+        logger.info(f"📤 Sending reply to {conv_input.user_id}...")
+        send_result = await whatsapp_integration.send_message(
             to=conv_input.user_id,
             text=agent_output.reply_text
         )
+        
+        if send_result.get("success"):
+            logger.info(f"✅ Message sent successfully: {send_result.get('message_id')}")
+        else:
+            error_msg = send_result.get("error", "Unknown error")
+            error_code = send_result.get("error_code", "UNKNOWN")
+            logger.error(f"❌ Failed to send message: {error_msg} (code: {error_code})")
+            # لا نعيد الخطأ للعميل، فقط نسجله
         
         # المحادثة تم حفظها بالفعل في agent.handle_message
         # نحتاج فقط للحصول على آخر محادثة للـ ID
