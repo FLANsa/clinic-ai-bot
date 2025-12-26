@@ -26,38 +26,6 @@ export default function AnalyticsPage() {
 
     const results: TestResult[] = []
 
-    // 1. System Health Check
-    try {
-      results.push({ name: 'فحص حالة النظام', status: 'pending', message: 'جاري الفحص...' })
-      setTestResults([...results])
-      
-      const health = await checkSystemHealth()
-      
-      // Check if all checks are healthy
-      const checks = health.checks || []
-      const allHealthy = checks.every((check: any) => check.status === 'ok' || check.status === 'healthy')
-      const hasWarnings = checks.some((check: any) => check.status === 'warning')
-      const hasErrors = checks.some((check: any) => check.status === 'error')
-      
-      let status: 'success' | 'warning' | 'error' = 'success'
-      if (hasErrors) status = 'error'
-      else if (hasWarnings || !allHealthy) status = 'warning'
-      
-      results[results.length - 1] = {
-        name: 'فحص حالة النظام',
-        status: status,
-        message: allHealthy ? 'جميع الأنظمة تعمل بشكل صحيح' : hasErrors ? 'بعض الأنظمة بها أخطاء' : 'بعض الأنظمة تحتاج انتباه',
-        details: health
-      }
-      setTestResults([...results])
-    } catch (err) {
-      results[results.length - 1] = {
-        name: 'فحص حالة النظام',
-        status: 'error',
-        message: err instanceof Error ? err.message : 'فشل فحص حالة النظام'
-      }
-      setTestResults([...results])
-    }
 
     // 2. Test Chat
     try {
