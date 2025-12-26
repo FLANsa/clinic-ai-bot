@@ -116,12 +116,6 @@ export async function ingestRagSourceFile(sourceId: string, file: File) {
   return await response.json()
 }
 
-export async function testRagQuery(query: string) {
-  return fetchAPI('/admin/rag/test-query', {
-    method: 'POST',
-    body: JSON.stringify({ query }),
-  }, true)
-}
 
 // Branches
 export async function getBranches() {
@@ -207,24 +201,6 @@ export async function testChat(message: string, userId: string = 'test_user', ch
   })
 }
 
-// Performance Tests
-export async function runPerformanceTests(numTests: number = 5) {
-  return fetchAPI(`/test/performance/run?num_tests=${numTests}`, {
-    method: 'POST',
-  })
-}
-
-// All Tests
-export async function runAllTests() {
-  return fetchAPI('/test/tests/run-all', {
-    method: 'POST',
-  })
-}
-
-// System Health Check
-export async function checkSystemHealth() {
-  return fetchAPI('/test/health/system', {}, false)
-}
 
 // Database Management
 export async function initDatabase() {
@@ -251,46 +227,5 @@ export async function addSampleData() {
   }, true)
 }
 
-// WhatsApp Test
-export async function testWhatsAppConnection() {
-  return fetchAPI('/test/whatsapp/test-connection', {
-    method: 'POST',
-  })
-}
-
-export async function sendWhatsAppTestMessage(phoneNumber: string, message: string) {
-  return fetchAPI('/test/whatsapp/send-test-message', {
-    method: 'POST',
-    body: JSON.stringify({
-      phone_number: phoneNumber,
-      message: message,
-    }),
-  })
-}
-
-// Diagnostic functions
-export interface DiagnosticResult {
-  component: string
-  status: 'ok' | 'error' | 'warning'
-  message: string
-  details?: Record<string, any>
-  error_type?: string
-  error_message?: string
-}
-
-export interface DiagnosticResponse {
-  overall_status: 'healthy' | 'degraded' | 'unhealthy'
-  results: DiagnosticResult[]
-  recommendations: string[]
-}
-
-export async function diagnoseBotIssues(testMessage: string = 'مرحبا'): Promise<DiagnosticResponse> {
-  return fetchAPI('/test/health/diagnose', {
-    method: 'POST',
-    body: JSON.stringify({
-      test_message: testMessage,
-    }),
-  })
-}
 
 

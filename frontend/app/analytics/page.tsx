@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { checkSystemHealth, testChat } from '../../lib/api-client'
+import { testChat } from '../../lib/api-client'
 
 interface TestResult {
   name: string

@@ -26,7 +26,6 @@ from app.api.admin import db_router
 # from app.api.reports import daily_reports_router  # To be implemented
 # from app.api.google import google_reviews_router  # To be implemented
 from app.api.test import chat_router as test_chat_router
-from app.api.test import whatsapp_test_router
 from app.logging_config import setup_logging
 import os
 
@@ -173,15 +172,8 @@ app.include_router(n8n_router.router)
 # Google - To be implemented
 # app.include_router(google_reviews_router.router)
 
-# Test
+# Test Chat (للاختبار المباشر)
 app.include_router(test_chat_router.router)
-from app.api.test import performance_router as test_performance_router
-from app.api.test import tests_router as test_tests_router
-from app.api.test import health_check_router as test_health_check_router
-app.include_router(test_performance_router.router)
-app.include_router(test_tests_router.router)
-app.include_router(test_health_check_router.router)
-app.include_router(whatsapp_test_router.router)
 
 # Start background scheduler
 @app.on_event("startup")
