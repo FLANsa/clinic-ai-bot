@@ -129,6 +129,19 @@ export async function createBranch(data: any) {
   }, true)
 }
 
+export async function updateBranch(branchId: string, data: any) {
+  return fetchAPI(`/admin/branches/${branchId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }, true)
+}
+
+export async function deleteBranch(branchId: string) {
+  return fetchAPI(`/admin/branches/${branchId}`, {
+    method: 'DELETE',
+  }, true)
+}
+
 // Doctors
 export async function getDoctors() {
   return fetchAPI('/admin/doctors', {}, true)
@@ -141,6 +154,19 @@ export async function createDoctor(data: any) {
   }, true)
 }
 
+export async function updateDoctor(doctorId: string, data: any) {
+  return fetchAPI(`/admin/doctors/${doctorId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }, true)
+}
+
+export async function deleteDoctor(doctorId: string) {
+  return fetchAPI(`/admin/doctors/${doctorId}`, {
+    method: 'DELETE',
+  }, true)
+}
+
 // Services
 export async function getServices() {
   return fetchAPI('/admin/services', {}, true)
@@ -150,6 +176,19 @@ export async function createService(data: any) {
   return fetchAPI('/admin/services', {
     method: 'POST',
     body: JSON.stringify(data),
+  }, true)
+}
+
+export async function updateService(serviceId: string, data: any) {
+  return fetchAPI(`/admin/services/${serviceId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }, true)
+}
+
+export async function deleteService(serviceId: string) {
+  return fetchAPI(`/admin/services/${serviceId}`, {
+    method: 'DELETE',
   }, true)
 }
 
