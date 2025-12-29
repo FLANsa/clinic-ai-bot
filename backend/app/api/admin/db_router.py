@@ -1074,21 +1074,10 @@ async def add_north_branch_data(
             logger.info(f"⚠️  الجداول التالية غير موجودة: {', '.join(missing_tables)}")
             logger.info("🔨 جاري إنشاء الجداول المطلوبة...")
             
-            # إنشاء الجداول المطلوبة فقط
+            # إنشاء الجداول المطلوبة
             from app.db.base import Base
-            Base.metadata.create_all(
-                bind=engine,
-                tables=[
-                    Base.metadata.tables["branches"],
-                    Base.metadata.tables["doctors"],
-                    Base.metadata.tables["services"]
-                ] if all(t in Base.metadata.tables for t in missing_tables) else None
-            )
-            
-            # إذا لم تكن الجداول في metadata، ننشئها جميعاً
-            if not all(table in Base.metadata.tables for table in missing_tables):
-                logger.info("🔨 إنشاء جميع الجداول المطلوبة...")
-                Base.metadata.create_all(bind=engine)
+            # إنشاء جميع الجداول (سيتم إنشاء المطلوبة فقط)
+            Base.metadata.create_all(bind=engine)
             
             details["tables_created"] = missing_tables
             logger.info(f"✅ تم إنشاء الجداول: {', '.join(missing_tables)}")
