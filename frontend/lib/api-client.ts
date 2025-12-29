@@ -270,7 +270,7 @@ export async function importFromCSV(branchesFile?: File, doctorsFile?: File, ser
     headers['X-API-Key'] = API_KEY
   }
 
-  const response = await fetch(`${API_BASE}/admin/csv-import/import-from-csv', {
+  const response = await fetch(`${API_BASE}/admin/csv-import/import-from-csv`, {
     method: 'POST',
     headers,
     body: formData,
