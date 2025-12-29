@@ -1238,6 +1238,14 @@ async def add_north_branch_data(
     except Exception as e:
         error_msg = str(e)
         logger.error(f"❌ فشل إضافة بيانات فرع الشمال: {error_msg}", exc_info=True)
+        
+        # تحسين رسالة الخطأ إذا كانت الجداول غير موجودة
+        if "does not exist" in error_msg.lower() or "relation" in error_msg.lower():
+            raise HTTPException(
+                status_code=400,
+                detail=f"❌ الجداول غير موجودة في قاعدة البيانات!\n\nيجب تهيئة قاعدة البيانات أولاً:\n1. اضغط على زر 'تهيئة قاعدة البيانات' في صفحة test-chat\n2. ثم حاول إضافة بيانات فرع الشمال مرة أخرى\n\nالخطأ التفصيلي: {error_msg[:150]}"
+            )
+        
         raise HTTPException(
             status_code=500,
             detail=f"فشل إضافة بيانات فرع الشمال: {error_msg[:200]}"
