@@ -1046,6 +1046,8 @@ async def add_north_branch_data(
     """
     إضافة بيانات فرع الشمال - حي الحزم
     من الجدول المرفق: فرع الشمال حي الحزم ساعات العمل من ٨ص حتى ١ص والجمعة من ١م ١ص
+    
+    يقوم تلقائياً بإنشاء الجداول المطلوبة (branches, doctors, services) إذا لم تكن موجودة
     """
     logger.info("بدء إضافة بيانات فرع الشمال - حي الحزم...")
     
@@ -1053,10 +1055,46 @@ async def add_north_branch_data(
         from app.db.models import Branch, Doctor, Service
         from datetime import datetime
         import uuid
+        from sqlalchemy import inspect as sqlalchemy_inspect
         
         details = {}
         counts = {}
         now = datetime.now()
+        
+        # 0. التحقق من وجود الجداول وإنشاؤها إذا لم تكن موجودة
+        logger.info("🔍 التحقق من وجود الجداول المطلوبة...")
+        engine = create_engine(settings.DATABASE_URL, isolation_level="AUTOCOMMIT")
+        inspector = sqlalchemy_inspect(engine)
+        existing_tables = inspector.get_table_names()
+        
+        required_tables = ["branches", "doctors", "services"]
+        missing_tables = [table for table in required_tables if table not in existing_tables]
+        
+        if missing_tables:
+            logger.info(f"⚠️  الجداول التالية غير موجودة: {', '.join(missing_tables)}")
+            logger.info("🔨 جاري إنشاء الجداول المطلوبة...")
+            
+            # إنشاء الجداول المطلوبة فقط
+            from app.db.base import Base
+            Base.metadata.create_all(
+                bind=engine,
+                tables=[
+                    Base.metadata.tables["branches"],
+                    Base.metadata.tables["doctors"],
+                    Base.metadata.tables["services"]
+                ] if all(t in Base.metadata.tables for t in missing_tables) else None
+            )
+            
+            # إذا لم تكن الجداول في metadata، ننشئها جميعاً
+            if not all(table in Base.metadata.tables for table in missing_tables):
+                logger.info("🔨 إنشاء جميع الجداول المطلوبة...")
+                Base.metadata.create_all(bind=engine)
+            
+            details["tables_created"] = missing_tables
+            logger.info(f"✅ تم إنشاء الجداول: {', '.join(missing_tables)}")
+        else:
+            logger.info("✅ جميع الجداول المطلوبة موجودة")
+            details["tables_created"] = []
         
         # 1. إضافة فرع الشمال - حي الحزم
         # ساعات العمل: من 8 صباحاً حتى 1 صباحاً (الليلة التالية)
