@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react'
-import { testChat, createCoreTables, addCustomData, importFromCSV } from '../../lib/api-client'
+import { testChat, createCoreTables, addCustomData, importFromCSV, importLocalCSV } from '../../lib/api-client'
 
 interface TestResult {
   name: string
@@ -18,6 +18,7 @@ export default function AnalyticsPage() {
   const [creatingTables, setCreatingTables] = useState(false)
   const [addingData, setAddingData] = useState(false)
   const [importingCSV, setImportingCSV] = useState(false)
+  const [importingLocalCSV, setImportingLocalCSV] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -207,6 +208,31 @@ export default function AnalyticsPage() {
     input.click()
   }
 
+  const handleImportLocalCSV = async () => {
+    if (!confirm('هل تريد استيراد البيانات من ملفات CSV المحلية؟\n\nسيتم قراءة:\n- branches_import.csv\n- doctors_import.csv\n- services_import.csv')) {
+      return
+    }
+
+    setImportingLocalCSV(true)
+    setError(null)
+
+    try {
+      const result = await importLocalCSV()
+      const counts = result.details?.counts || {}
+      const message = result.message || 'تم الاستيراد بنجاح'
+
+      alert(`✅ ${message}\n\n` +
+        `الفروع: ${counts.branches || 0}\n` +
+        `الأطباء: ${counts.doctors || 0}\n` +
+        `الخدمات: ${counts.services || 0}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'حدث خطأ أثناء استيراد البيانات')
+      alert(`❌ خطأ: ${err instanceof Error ? err.message : 'حدث خطأ غير متوقع'}`)
+    } finally {
+      setImportingLocalCSV(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -334,9 +360,9 @@ export default function AnalyticsPage() {
           </button>
           <button
             onClick={handleImportCSV}
-            disabled={importingCSV || addingData}
+            disabled={importingCSV || addingData || importingLocalCSV}
             className="bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors duration-200"
-            title="استيراد البيانات من ملفات CSV"
+            title="رفع ملفات CSV من جهازك"
           >
             {importingCSV ? (
               <>
@@ -351,7 +377,30 @@ export default function AnalyticsPage() {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
-                استيراد من CSV
+                رفع ملفات CSV
+              </>
+            )}
+          </button>
+          <button
+            onClick={handleImportLocalCSV}
+            disabled={importingLocalCSV || addingData || importingCSV}
+            className="bg-teal-600 hover:bg-teal-700 disabled:bg-teal-400 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors duration-200"
+            title="استيراد البيانات من ملفات CSV المحلية في المشروع"
+          >
+            {importingLocalCSV ? (
+              <>
+                <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                جاري الاستيراد...
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                استيراد CSV المحلية
               </>
             )}
           </button>

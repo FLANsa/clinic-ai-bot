@@ -246,6 +246,12 @@ export async function addCustomData(data: any) {
   }, true)
 }
 
+export async function importLocalCSV() {
+  return fetchAPI('/admin/csv-import/import-local-csv', {
+    method: 'POST',
+  }, true)
+}
+
 export async function importFromCSV(branchesFile?: File, doctorsFile?: File, servicesFile?: File) {
   const formData = new FormData()
   
