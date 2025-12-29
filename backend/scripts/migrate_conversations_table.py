@@ -102,3 +102,4 @@ def migrate_conversations_table():
 if __name__ == "__main__":
     migrate_conversations_table()
 
+

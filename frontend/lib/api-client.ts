@@ -227,5 +227,11 @@ export async function addSampleData() {
   }, true)
 }
 
+export async function addNorthBranchData() {
+  return fetchAPI('/admin/db/add-north-branch-data', {
+    method: 'POST',
+  }, true)
+}
+
 
 

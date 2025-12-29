@@ -1037,3 +1037,209 @@ async def add_sample_data(
             detail=f"فشل إضافة البيانات التجريبية: {error_msg[:200]}"
         )
 
+
+@router.post("/add-north-branch-data", response_model=AddSampleDataResponse)
+async def add_north_branch_data(
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    إضافة بيانات فرع الشمال - حي الحزم
+    من الجدول المرفق: فرع الشمال حي الحزم ساعات العمل من ٨ص حتى ١ص والجمعة من ١م ١ص
+    """
+    logger.info("بدء إضافة بيانات فرع الشمال - حي الحزم...")
+    
+    try:
+        from app.db.models import Branch, Doctor, Service
+        from datetime import datetime
+        import uuid
+        
+        details = {}
+        counts = {}
+        now = datetime.now()
+        
+        # 1. إضافة فرع الشمال - حي الحزم
+        # ساعات العمل: من 8 صباحاً حتى 1 صباحاً (الليلة التالية)
+        # الجمعة: من 1 ظهراً حتى 1 صباحاً
+        branch_data = {
+            "name": "فرع الشمال - حي الحزم",
+            "city": "الرياض",
+            "address": "حي الحزم",
+            "phone": "0112345679",
+            "location_url": "https://maps.google.com/?q=24.7136,46.6753",
+            "working_hours": {
+                "sunday": {"from": "08:00", "to": "01:00"},
+                "monday": {"from": "08:00", "to": "01:00"},
+                "tuesday": {"from": "08:00", "to": "01:00"},
+                "wednesday": {"from": "08:00", "to": "01:00"},
+                "thursday": {"from": "08:00", "to": "01:00"},
+                "friday": {"from": "13:00", "to": "01:00"},
+                "saturday": {"from": "08:00", "to": "01:00"}
+            }
+        }
+        
+        # التحقق من وجود الفرع
+        existing_branch = db.query(Branch).filter(Branch.name == branch_data["name"]).first()
+        if existing_branch:
+            branch = existing_branch
+            logger.info(f"✅ الفرع موجود بالفعل: {branch.name}")
+        else:
+            branch = Branch(
+                id=uuid.uuid4(),
+                name=branch_data["name"],
+                city=branch_data["city"],
+                address=branch_data["address"],
+                phone=branch_data["phone"],
+                location_url=branch_data["location_url"],
+                working_hours=branch_data["working_hours"],
+                is_active=True,
+                created_at=now,
+                updated_at=now
+            )
+            db.add(branch)
+            db.commit()
+            db.refresh(branch)
+            logger.info(f"✅ تم إضافة فرع: {branch.name}")
+        
+        counts["branches"] = 1
+        details["branch"] = branch.name
+        
+        # 2. إضافة الأطباء حسب الأقسام
+        doctors_data = [
+            # الطب العام (4 أطباء)
+            {"name": "د. أحمد محمد العلي", "specialty": "الطب العام", "count": 1},
+            {"name": "د. فاطمة عبدالله السالم", "specialty": "الطب العام", "count": 1},
+            {"name": "د. خالد سعد الدوسري", "specialty": "الطب العام", "count": 1},
+            {"name": "د. نورا حسن القحطاني", "specialty": "الطب العام", "count": 1},
+            # الباطنة (1)
+            {"name": "د. محمد علي الشمري", "specialty": "الباطنة", "count": 1},
+            # اطفال (1)
+            {"name": "د. سارة أحمد الزهراني", "specialty": "اطفال", "count": 1},
+            # اسنان (9 أطباء)
+            {"name": "د. عبدالرحمن فهد المطيري", "specialty": "اسنان", "count": 1},
+            {"name": "د. ليلى عبدالعزيز العتيبي", "specialty": "اسنان", "count": 1},
+            {"name": "د. يوسف صالح الحربي", "specialty": "اسنان", "count": 1},
+            {"name": "د. منى خالد الدوسري", "specialty": "اسنان", "count": 1},
+            {"name": "د. بندر ناصر القحطاني", "specialty": "اسنان", "count": 1},
+            {"name": "د. ريم عبدالله السبيعي", "specialty": "اسنان", "count": 1},
+            {"name": "د. تركي فيصل العلي", "specialty": "اسنان", "count": 1},
+            {"name": "د. هناء محمد الشمري", "specialty": "اسنان", "count": 1},
+            {"name": "د. ماجد سعد المطيري", "specialty": "اسنان", "count": 1},
+            # نساء وولادة (2)
+            {"name": "د. عبير فهد الزهراني", "specialty": "نساء وولادة", "count": 1},
+            {"name": "د. نورة صالح العتيبي", "specialty": "نساء وولادة", "count": 1},
+            # جلدية (2)
+            {"name": "د. وليد خالد الحربي", "specialty": "جلدية", "count": 1},
+            {"name": "د. ريم ناصر الدوسري", "specialty": "جلدية", "count": 1},
+        ]
+        
+        doctors = []
+        for doctor_data in doctors_data:
+            # التحقق من وجود الطبيب
+            existing_doctor = db.query(Doctor).filter(
+                Doctor.name == doctor_data["name"],
+                Doctor.branch_id == branch.id
+            ).first()
+            
+            if existing_doctor:
+                doctors.append(existing_doctor)
+                logger.info(f"ℹ️  الطبيب موجود: {doctor_data['name']}")
+            else:
+                doctor = Doctor(
+                    id=uuid.uuid4(),
+                    name=doctor_data["name"],
+                    specialty=doctor_data["specialty"],
+                    branch_id=branch.id,
+                    license_number=f"LIC-{uuid.uuid4().hex[:8].upper()}",
+                    working_hours=branch_data["working_hours"],  # نفس ساعات الفرع
+                    is_active=True,
+                    created_at=now,
+                    updated_at=now
+                )
+                db.add(doctor)
+                doctors.append(doctor)
+        
+        db.commit()
+        for doctor in doctors:
+            db.refresh(doctor)
+        
+        counts["doctors"] = len(doctors)
+        details["doctors"] = [d.name for d in doctors]
+        logger.info(f"✅ تم إضافة {len(doctors)} طبيب")
+        
+        # 3. إضافة الخدمات حسب الأقسام
+        services_data = [
+            {"name": "الطب العام", "description": "استشارات طبية عامة وفحوصات دورية", "base_price": 150.0},
+            {"name": "الباطنة", "description": "استشارات أمراض الباطنة والجهاز الهضمي", "base_price": 200.0},
+            {"name": "طب الأطفال", "description": "استشارات وعلاج الأطفال", "base_price": 180.0},
+            {"name": "طب الأسنان", "description": "علاج الأسنان واللثة", "base_price": 250.0},
+            {"name": "نساء وولادة", "description": "استشارات نسائية ومتابعة الحمل", "base_price": 300.0},
+            {"name": "الجلدية", "description": "علاج أمراض الجلد والجمال", "base_price": 200.0},
+            {"name": "المختبر", "description": "تحاليل طبية شاملة", "base_price": 100.0},
+            {"name": "الأشعة", "description": "فحوصات الأشعة التشخيصية", "base_price": 150.0},
+            {"name": "التشقير", "description": "خدمات التشقير والتجميل", "base_price": 120.0},
+        ]
+        
+        services = []
+        for service_data in services_data:
+            # التحقق من وجود الخدمة
+            existing_service = db.query(Service).filter(Service.name == service_data["name"]).first()
+            
+            if existing_service:
+                services.append(existing_service)
+                logger.info(f"ℹ️  الخدمة موجودة: {service_data['name']}")
+            else:
+                service = Service(
+                    id=uuid.uuid4(),
+                    name=service_data["name"],
+                    description=service_data["description"],
+                    base_price=service_data["base_price"],
+                    is_active=True,
+                    created_at=now,
+                    updated_at=now
+                )
+                db.add(service)
+                services.append(service)
+        
+        db.commit()
+        for service in services:
+            db.refresh(service)
+        
+        counts["services"] = len(services)
+        details["services"] = [s.name for s in services]
+        logger.info(f"✅ تم إضافة {len(services)} خدمة")
+        
+        # ملخص
+        summary = f"""
+✅ تم إضافة بيانات فرع الشمال - حي الحزم بنجاح!
+
+📊 الملخص:
+- الفروع: {counts.get('branches', 0)}
+- الأطباء: {counts.get('doctors', 0)}
+- الخدمات: {counts.get('services', 0)}
+
+🏥 الفرع: {branch.name}
+📍 العنوان: {branch.address}
+⏰ ساعات العمل: من 8 صباحاً حتى 1 صباحاً (الجمعة من 1 ظهراً)
+        """
+        
+        return AddSampleDataResponse(
+            success=True,
+            message=summary.strip(),
+            details={
+                "counts": counts,
+                "branch": branch.name,
+                "doctors_count": len(doctors),
+                "services_count": len(services),
+                "working_hours": branch.working_hours
+            }
+        )
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"❌ فشل إضافة بيانات فرع الشمال: {error_msg}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"فشل إضافة بيانات فرع الشمال: {error_msg[:200]}"
+        )
+

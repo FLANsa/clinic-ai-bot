@@ -61,3 +61,4 @@ class LLMClient:
             raise Exception(f"خطأ في الاتصال بـ Groq: {str(e)}")
 
 
+

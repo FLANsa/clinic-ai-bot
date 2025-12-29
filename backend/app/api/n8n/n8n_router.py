@@ -345,3 +345,4 @@ async def get_stats_n8n(
         logger.error(f"خطأ في جلب الإحصائيات: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
