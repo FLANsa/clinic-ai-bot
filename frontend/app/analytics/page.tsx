@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { testChat } from '../../lib/api-client'
+import { testChat, createCoreTables, addCustomData } from '../../lib/api-client'
 
 interface TestResult {
   name: string
@@ -15,6 +15,8 @@ export default function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [testResults, setTestResults] = useState<TestResult[]>([])
+  const [creatingTables, setCreatingTables] = useState(false)
+  const [addingData, setAddingData] = useState(false)
 
   useEffect(() => {
     setLoading(false)
@@ -78,6 +80,31 @@ export default function AnalyticsPage() {
     setTesting(false)
   }
 
+  const handleCreateCoreTables = async () => {
+    if (!confirm('هل تريد إنشاء الجداول الأساسية (branches, doctors, services)؟\n\nسيتم إنشاء الجداول الثلاثة فقط.')) {
+      return
+    }
+
+    setCreatingTables(true)
+    setError(null)
+
+    try {
+      const result = await createCoreTables()
+      alert(`✅ ${result.message || 'تم إنشاء الجداول بنجاح!'}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'حدث خطأ أثناء إنشاء الجداول')
+      alert(`❌ خطأ: ${err instanceof Error ? err.message : 'حدث خطأ غير متوقع'}`)
+    } finally {
+      setCreatingTables(false)
+    }
+  }
+
+  const handleAddCustomData = async () => {
+    // هذا الزر جاهز لاستقبال البيانات
+    // سيتم تحديثه بعد أن يوفر المستخدم البيانات
+    alert('⚠️ هذا الزر جاهز لاستقبال البيانات.\n\nيرجى توفير البيانات في ملف JSON وسأقوم بتحديث الوظيفة.')
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -134,28 +161,76 @@ export default function AnalyticsPage() {
           </h1>
           <p className="text-gray-600">نظرة عامة شاملة على أداء البوت والتفاعلات</p>
         </div>
-        <button
-          onClick={runComprehensiveTests}
-          disabled={testing}
-          className="btn-primary flex items-center gap-2"
-        >
-          {testing ? (
-            <>
-              <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              جاري الاختبار...
-            </>
-          ) : (
-            <>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              اختبار شامل للنظام
-            </>
-          )}
-        </button>
+        <div className="flex gap-3 flex-wrap">
+          <button
+            onClick={runComprehensiveTests}
+            disabled={testing}
+            className="btn-primary flex items-center gap-2"
+          >
+            {testing ? (
+              <>
+                <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                جاري الاختبار...
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                اختبار شامل للنظام
+              </>
+            )}
+          </button>
+          <button
+            onClick={handleCreateCoreTables}
+            disabled={creatingTables}
+            className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors duration-200"
+            title="إنشاء جداول branches, doctors, services"
+          >
+            {creatingTables ? (
+              <>
+                <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                جاري الإنشاء...
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                إنشاء الجداول الأساسية
+              </>
+            )}
+          </button>
+          <button
+            onClick={handleAddCustomData}
+            disabled={addingData}
+            className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors duration-200"
+            title="إضافة بيانات مخصصة للجداول"
+          >
+            {addingData ? (
+              <>
+                <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                جاري الإضافة...
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                إضافة بيانات مخصصة
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}

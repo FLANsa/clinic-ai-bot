@@ -233,5 +233,18 @@ export async function addNorthBranchData() {
   }, true)
 }
 
+export async function createCoreTables() {
+  return fetchAPI('/admin/db/create-core-tables', {
+    method: 'POST',
+  }, true)
+}
+
+export async function addCustomData(data: any) {
+  return fetchAPI('/admin/db/add-custom-data', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }, true)
+}
+
 
 

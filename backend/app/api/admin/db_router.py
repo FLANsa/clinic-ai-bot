@@ -1038,6 +1038,74 @@ async def add_sample_data(
         )
 
 
+@router.post("/create-core-tables", response_model=InitDBResponse)
+async def create_core_tables(
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    إنشاء الجداول الأساسية فقط: branches, doctors, services
+    """
+    logger.info("بدء إنشاء الجداول الأساسية (branches, doctors, services)...")
+    
+    try:
+        from sqlalchemy import inspect as sqlalchemy_inspect
+        
+        details = {}
+        engine = create_engine(settings.DATABASE_URL, isolation_level="AUTOCOMMIT")
+        inspector = sqlalchemy_inspect(engine)
+        existing_tables = inspector.get_table_names()
+        
+        required_tables = ["branches", "doctors", "services"]
+        missing_tables = [table for table in required_tables if table not in existing_tables]
+        
+        if not missing_tables:
+            return InitDBResponse(
+                success=True,
+                message="✅ جميع الجداول الأساسية موجودة بالفعل!\n\nالجداول الموجودة:\n- branches\n- doctors\n- services",
+                details={"tables": "جميع الجداول موجودة", "existing_tables": existing_tables}
+            )
+        
+        logger.info(f"🔨 جاري إنشاء الجداول المفقودة: {', '.join(missing_tables)}")
+        
+        # إنشاء الجداول المطلوبة فقط
+        from app.db.base import Base
+        from app.db.models import Branch, Doctor, Service
+        
+        # إنشاء الجداول المحددة فقط
+        Base.metadata.create_all(
+            bind=engine,
+            tables=[
+                Base.metadata.tables["branches"],
+                Base.metadata.tables["doctors"],
+                Base.metadata.tables["services"]
+            ]
+        )
+        
+        # التحقق من إنشاء الجداول
+        inspector = sqlalchemy_inspect(engine)
+        created_tables = [table for table in required_tables if table in inspector.get_table_names()]
+        
+        details["created_tables"] = created_tables
+        details["missing_tables_before"] = missing_tables
+        
+        logger.info(f"✅ تم إنشاء {len(created_tables)} جدول: {', '.join(created_tables)}")
+        
+        return InitDBResponse(
+            success=True,
+            message=f"✅ تم إنشاء الجداول الأساسية بنجاح!\n\nتم إنشاء {len(created_tables)} جدول:\n" + "\n".join([f"- {table}" for table in created_tables]),
+            details=details
+        )
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"❌ فشل إنشاء الجداول الأساسية: {error_msg}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"فشل إنشاء الجداول الأساسية: {error_msg[:200]}"
+        )
+
+
 @router.post("/add-north-branch-data", response_model=AddSampleDataResponse)
 async def add_north_branch_data(
     db: Session = Depends(get_db),
