@@ -1355,3 +1355,188 @@ async def add_north_branch_data(
             detail=f"فشل إضافة بيانات فرع الشمال: {error_msg[:200]}"
         )
 
+
+@router.post("/add-custom-data", response_model=AddSampleDataResponse)
+async def add_custom_data(
+    data: Dict[str, Any],
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    إضافة بيانات مخصصة للجداول الأساسية (branches, doctors, services)
+    
+    يتوقع body بالشكل التالي:
+    {
+        "branches": [
+            {
+                "name": "اسم الفرع",
+                "city": "المدينة",
+                "address": "العنوان",
+                "phone": "رقم الهاتف",
+                "location_url": "رابط الخريطة (اختياري)",
+                "working_hours": {...},
+                "is_active": true
+            }
+        ],
+        "doctors": [
+            {
+                "name": "اسم الطبيب",
+                "specialty": "التخصص",
+                "branch_name": "اسم الفرع" أو "branch_id": "uuid",
+                "phone_number": "رقم الهاتف (اختياري)",
+                "email": "البريد (اختياري)",
+                "working_hours": {...},
+                "is_active": true
+            }
+        ],
+        "services": [
+            {
+                "name": "اسم الخدمة",
+                "description": "الوصف",
+                "base_price": 100.0,
+                "is_active": true
+            }
+        ]
+    }
+    """
+    logger.info("بدء إضافة البيانات المخصصة...")
+    
+    try:
+        from app.db.models import Branch, Doctor, Service
+        from datetime import datetime
+        import uuid
+        from sqlalchemy import inspect as sqlalchemy_inspect
+        
+        details = {}
+        counts = {}
+        now = datetime.now()
+        
+        # التحقق من وجود الجداول
+        engine = create_engine(settings.DATABASE_URL, isolation_level="AUTOCOMMIT")
+        inspector = sqlalchemy_inspect(engine)
+        existing_tables = inspector.get_table_names()
+        
+        required_tables = ["branches", "doctors", "services"]
+        missing_tables = [table for table in required_tables if table not in existing_tables]
+        
+        if missing_tables:
+            raise HTTPException(
+                status_code=400,
+                detail=f"الجداول التالية غير موجودة: {', '.join(missing_tables)}. يرجى إنشاء الجداول أولاً باستخدام زر 'إنشاء الجداول الأساسية'."
+            )
+        
+        # 1. إضافة الفروع
+        branches_added = 0
+        if "branches" in data and isinstance(data["branches"], list):
+            for branch_data in data["branches"]:
+                existing = db.query(Branch).filter(Branch.name == branch_data.get("name")).first()
+                if not existing:
+                    branch = Branch(
+                        id=uuid.uuid4(),
+                        name=branch_data.get("name"),
+                        city=branch_data.get("city"),
+                        address=branch_data.get("address"),
+                        phone=branch_data.get("phone"),
+                        location_url=branch_data.get("location_url"),
+                        working_hours=branch_data.get("working_hours"),
+                        is_active=branch_data.get("is_active", True),
+                        created_at=now,
+                        updated_at=now
+                    )
+                    db.add(branch)
+                    branches_added += 1
+        
+        db.commit()
+        counts["branches"] = branches_added
+        logger.info(f"✅ تم إضافة {branches_added} فرع")
+        
+        # 2. إضافة الأطباء
+        doctors_added = 0
+        if "doctors" in data and isinstance(data["doctors"], list):
+            for doctor_data in data["doctors"]:
+                # البحث عن branch_id إذا كان اسم الفرع موجود
+                branch_id = None
+                if "branch_name" in doctor_data:
+                    branch = db.query(Branch).filter(Branch.name == doctor_data["branch_name"]).first()
+                    if branch:
+                        branch_id = branch.id
+                elif "branch_id" in doctor_data:
+                    branch_id = doctor_data["branch_id"]
+                
+                existing = db.query(Doctor).filter(
+                    Doctor.name == doctor_data.get("name"),
+                    Doctor.branch_id == branch_id
+                ).first()
+                
+                if not existing:
+                    doctor = Doctor(
+                        id=uuid.uuid4(),
+                        name=doctor_data.get("name"),
+                        specialty=doctor_data.get("specialty"),
+                        license_number=doctor_data.get("license_number") or f"LIC-{uuid.uuid4().hex[:8].upper()}",
+                        branch_id=branch_id,
+                        phone_number=doctor_data.get("phone_number"),
+                        email=doctor_data.get("email"),
+                        bio=doctor_data.get("bio"),
+                        working_hours=doctor_data.get("working_hours"),
+                        qualifications=doctor_data.get("qualifications"),
+                        experience_years=doctor_data.get("experience_years"),
+                        is_active=doctor_data.get("is_active", True),
+                        created_at=now,
+                        updated_at=now
+                    )
+                    db.add(doctor)
+                    doctors_added += 1
+        
+        db.commit()
+        counts["doctors"] = doctors_added
+        logger.info(f"✅ تم إضافة {doctors_added} طبيب")
+        
+        # 3. إضافة الخدمات
+        services_added = 0
+        if "services" in data and isinstance(data["services"], list):
+            for service_data in data["services"]:
+                existing = db.query(Service).filter(Service.name == service_data.get("name")).first()
+                if not existing:
+                    service = Service(
+                        id=uuid.uuid4(),
+                        name=service_data.get("name"),
+                        description=service_data.get("description"),
+                        base_price=service_data.get("base_price"),
+                        is_active=service_data.get("is_active", True),
+                        created_at=now,
+                        updated_at=now
+                    )
+                    db.add(service)
+                    services_added += 1
+        
+        db.commit()
+        counts["services"] = services_added
+        logger.info(f"✅ تم إضافة {services_added} خدمة")
+        
+        summary = f"""
+✅ تم إضافة البيانات المخصصة بنجاح!
+
+📊 الملخص:
+- الفروع المضافة: {counts.get('branches', 0)}
+- الأطباء المضافون: {counts.get('doctors', 0)}
+- الخدمات المضافة: {counts.get('services', 0)}
+        """
+        
+        return AddSampleDataResponse(
+            success=True,
+            message=summary.strip(),
+            details={"counts": counts}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        error_msg = str(e)
+        logger.error(f"❌ فشل إضافة البيانات المخصصة: {error_msg}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"فشل إضافة البيانات المخصصة: {error_msg[:200]}"
+        )
+

@@ -100,9 +100,51 @@ export default function AnalyticsPage() {
   }
 
   const handleAddCustomData = async () => {
-    // هذا الزر جاهز لاستقبال البيانات
-    // سيتم تحديثه بعد أن يوفر المستخدم البيانات
-    alert('⚠️ هذا الزر جاهز لاستقبال البيانات.\n\nيرجى توفير البيانات في ملف JSON وسأقوم بتحديث الوظيفة.')
+    // طلب من المستخدم إدخال البيانات
+    const dataInput = prompt(
+      'أدخل البيانات بصيغة JSON:\n\n' +
+      'مثال:\n' +
+      '{\n' +
+      '  "branches": [{"name": "فرع 1", "city": "الرياض", ...}],\n' +
+      '  "doctors": [{"name": "د. أحمد", "specialty": "أسنان", ...}],\n' +
+      '  "services": [{"name": "خدمة 1", "base_price": 100, ...}]\n' +
+      '}\n\n' +
+      'أو اتركه فارغاً لإلغاء العملية.'
+    )
+    
+    if (!dataInput || dataInput.trim() === '') {
+      return
+    }
+    
+    setAddingData(true)
+    setError(null)
+    
+    try {
+      // تحليل JSON
+      let data
+      try {
+        data = JSON.parse(dataInput)
+      } catch (parseError) {
+        alert('❌ خطأ في صيغة JSON. يرجى التحقق من البيانات.')
+        setAddingData(false)
+        return
+      }
+      
+      // إرسال البيانات
+      const result = await addCustomData(data)
+      const counts = result.details?.counts || {}
+      const message = result.message || 'تم الإضافة بنجاح'
+      
+      alert(`✅ ${message}\n\n` +
+        `الفروع: ${counts.branches || 0}\n` +
+        `الأطباء: ${counts.doctors || 0}\n` +
+        `الخدمات: ${counts.services || 0}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'حدث خطأ أثناء إضافة البيانات')
+      alert(`❌ خطأ: ${err instanceof Error ? err.message : 'حدث خطأ غير متوقع'}`)
+    } finally {
+      setAddingData(false)
+    }
   }
 
   if (loading) {
