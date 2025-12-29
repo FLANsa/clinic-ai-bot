@@ -1205,6 +1205,12 @@ async def add_north_branch_data(
             {"name": "المختبر", "description": "تحاليل طبية شاملة", "base_price": 100.0},
             {"name": "الأشعة", "description": "فحوصات الأشعة التشخيصية", "base_price": 150.0},
             {"name": "التشقير", "description": "خدمات التشقير والتجميل", "base_price": 120.0},
+            # خدمات الأسنان المحددة
+            {"name": "فحص الأسنان", "description": "فحص شامل للأسنان واللثة", "base_price": 100.0},
+            {"name": "حشو الأسنان", "description": "حشو الأسنان التجميلي أو العادي", "base_price": 200.0},
+            {"name": "تنظيف الأسنان", "description": "تنظيف وتلميع الأسنان", "base_price": 150.0},
+            {"name": "تركيب تاج أسنان", "description": "تركيب تاج (crown) للأسنان", "base_price": 500.0},
+            {"name": "علاج جذور الأسنان", "description": "علاج قناة الجذر (root canal)", "base_price": 300.0},
         ]
         
         services = []
