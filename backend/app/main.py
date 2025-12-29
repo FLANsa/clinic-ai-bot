@@ -166,6 +166,10 @@ app.include_router(db_router.router)
 from app.api.n8n import n8n_router
 app.include_router(n8n_router.router)
 
+# CSV Import
+from app.api.admin import csv_import_router
+app.include_router(csv_import_router.router)
+
 # Reports - To be implemented
 # app.include_router(daily_reports_router.router)
 

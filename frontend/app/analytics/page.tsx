@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect } from 'react'
-import { testChat, createCoreTables, addCustomData } from '../../lib/api-client'
+import { useState, useEffect, useRef } from 'react'
+import { testChat, createCoreTables, addCustomData, importFromCSV } from '../../lib/api-client'
 
 interface TestResult {
   name: string
@@ -17,6 +17,8 @@ export default function AnalyticsPage() {
   const [testResults, setTestResults] = useState<TestResult[]>([])
   const [creatingTables, setCreatingTables] = useState(false)
   const [addingData, setAddingData] = useState(false)
+  const [importingCSV, setImportingCSV] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setLoading(false)
@@ -107,7 +109,7 @@ export default function AnalyticsPage() {
       '{\n' +
       '  "branches": [{"name": "فرع 1", "city": "الرياض", ...}],\n' +
       '  "doctors": [{"name": "د. أحمد", "specialty": "أسنان", ...}],\n' +
-      '  "services": [{"name": "خدمة 1", "base_price": 100, ...}]\n' +
+      '  "services": [{"name": "خدمة 1", "base_price": 100", ...}]\n' +
       '}\n\n' +
       'أو اتركه فارغاً لإلغاء العملية.'
     )
@@ -145,6 +147,64 @@ export default function AnalyticsPage() {
     } finally {
       setAddingData(false)
     }
+  }
+
+  const handleImportCSV = () => {
+    // فتح نافذة اختيار الملفات
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.csv'
+    input.multiple = true
+    input.onchange = async (e) => {
+      const files = (e.target as HTMLInputElement).files
+      if (!files || files.length === 0) {
+        return
+      }
+
+      setImportingCSV(true)
+      setError(null)
+
+      try {
+        let branchesFile: File | undefined
+        let doctorsFile: File | undefined
+        let servicesFile: File | undefined
+
+        // تحديد نوع كل ملف حسب الاسم
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i]
+          const fileName = file.name.toLowerCase()
+          
+          if (fileName.includes('branch') || fileName.includes('فرع')) {
+            branchesFile = file
+          } else if (fileName.includes('doctor') || fileName.includes('طبيب')) {
+            doctorsFile = file
+          } else if (fileName.includes('service') || fileName.includes('خدمة')) {
+            servicesFile = file
+          }
+        }
+
+        if (!branchesFile && !doctorsFile && !servicesFile) {
+          alert('⚠️ لم يتم التعرف على نوع الملفات. يرجى التأكد من أن أسماء الملفات تحتوي على: branch/فرع, doctor/طبيب, service/خدمة')
+          setImportingCSV(false)
+          return
+        }
+
+        const result = await importFromCSV(branchesFile, doctorsFile, servicesFile)
+        const counts = result.details?.counts || {}
+        const message = result.message || 'تم الاستيراد بنجاح'
+
+        alert(`✅ ${message}\n\n` +
+          `الفروع: ${counts.branches || 0}\n` +
+          `الأطباء: ${counts.doctors || 0}\n` +
+          `الخدمات: ${counts.services || 0}`)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'حدث خطأ أثناء استيراد البيانات')
+        alert(`❌ خطأ: ${err instanceof Error ? err.message : 'حدث خطأ غير متوقع'}`)
+      } finally {
+        setImportingCSV(false)
+      }
+    }
+    input.click()
   }
 
   if (loading) {
@@ -251,9 +311,9 @@ export default function AnalyticsPage() {
           </button>
           <button
             onClick={handleAddCustomData}
-            disabled={addingData}
+            disabled={addingData || importingCSV}
             className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors duration-200"
-            title="إضافة بيانات مخصصة للجداول"
+            title="إضافة بيانات مخصصة بصيغة JSON"
           >
             {addingData ? (
               <>
@@ -268,7 +328,30 @@ export default function AnalyticsPage() {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                إضافة بيانات مخصصة
+                إضافة بيانات JSON
+              </>
+            )}
+          </button>
+          <button
+            onClick={handleImportCSV}
+            disabled={importingCSV || addingData}
+            className="bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors duration-200"
+            title="استيراد البيانات من ملفات CSV"
+          >
+            {importingCSV ? (
+              <>
+                <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                جاري الاستيراد...
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                استيراد من CSV
               </>
             )}
           </button>

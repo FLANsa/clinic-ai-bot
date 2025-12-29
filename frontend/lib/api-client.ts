@@ -246,5 +246,37 @@ export async function addCustomData(data: any) {
   }, true)
 }
 
+export async function importFromCSV(branchesFile?: File, doctorsFile?: File, servicesFile?: File) {
+  const formData = new FormData()
+  
+  if (branchesFile) {
+    formData.append('branches_file', branchesFile)
+  }
+  if (doctorsFile) {
+    formData.append('doctors_file', doctorsFile)
+  }
+  if (servicesFile) {
+    formData.append('services_file', servicesFile)
+  }
+
+  const headers: HeadersInit = {}
+  if (API_KEY) {
+    headers['X-API-Key'] = API_KEY
+  }
+
+  const response = await fetch(`${API_BASE}/admin/csv-import/import-from-csv', {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'حدث خطأ غير متوقع' }))
+    throw new Error(error.detail || error.message || 'حدث خطأ غير متوقع')
+  }
+
+  return await response.json()
+}
+
 
 
