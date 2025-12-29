@@ -1237,9 +1237,12 @@ async def add_north_branch_data(
         logger.info(f"✅ تم إضافة {len(services)} خدمة")
         
         # ملخص
+        tables_info = ""
+        if details.get("tables_created"):
+            tables_info = f"\n🔨 تم إنشاء الجداول: {', '.join(details['tables_created'])}\n"
+        
         summary = f"""
-✅ تم إضافة بيانات فرع الشمال - حي الحزم بنجاح!
-
+✅ تم إضافة بيانات فرع الشمال - حي الحزم بنجاح!{tables_info}
 📊 الملخص:
 - الفروع: {counts.get('branches', 0)}
 - الأطباء: {counts.get('doctors', 0)}
